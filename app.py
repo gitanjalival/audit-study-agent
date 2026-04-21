@@ -13,6 +13,7 @@ import time
 from datetime import date
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from agent import generate_summary, generate_study_plan, generate_practice_questions
 from quiz import (load_questions, get_weighted_questions,
@@ -351,6 +352,81 @@ def _acc_color(a):
     if a < 0.7:  return "#C4963A"   # warm amber
     if a < 0.85: return "#7A9E88"   # sage green
     return "#B87C65"                # terracotta
+
+def _confetti():
+    """Burst of confetti on the parent page when a question is answered correctly."""
+    components.html("""
+<script>
+(function() {
+  var doc = window.parent.document;
+  var canvas = doc.createElement('canvas');
+  canvas.style.cssText = [
+    'position:fixed','top:0','left:0','width:100%','height:100%',
+    'pointer-events:none','z-index:99999','display:block'
+  ].join(';');
+  doc.body.appendChild(canvas);
+
+  var W = window.parent.innerWidth;
+  var H = window.parent.innerHeight;
+  canvas.width  = W;
+  canvas.height = H;
+  var ctx = canvas.getContext('2d');
+
+  var colors = [
+    '#B87C65','#D4956A','#F7C59F',   // terracotta family
+    '#7A9E88','#BDD3C5',             // sage
+    '#F5D67B','#F2A65A',             // gold / amber
+    '#C6A8D2','#85BCCF'             // lilac / sky
+  ];
+
+  var pieces = [];
+  for (var i = 0; i < 120; i++) {
+    pieces.push({
+      x:    Math.random() * W,
+      y:    Math.random() * H * -1,      // start above the viewport
+      w:    Math.random() * 10 + 6,
+      h:    Math.random() * 5  + 4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot:  Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.15,
+      vx:   (Math.random() - 0.5) * 3,
+      vy:   Math.random() * 4 + 3,
+      opacity: 1
+    });
+  }
+
+  var frame = 0;
+  var FALL  = 90;   // frames of full fall
+  var FADE  = 40;   // frames to fade out
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    frame++;
+    var alive = false;
+    pieces.forEach(function(p) {
+      if (frame > FALL) {
+        p.opacity = Math.max(0, 1 - (frame - FALL) / FADE);
+      }
+      if (p.opacity <= 0) return;
+      alive = true;
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.rot += p.rotV;
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+      ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    if (alive) requestAnimationFrame(draw);
+    else        canvas.remove();
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+""", height=0)
 
 # ─── Background flashcard generation ──────────────────────────────────────────
 def _bg_generate(api_key_val, materials_text, topic_plan):
@@ -745,6 +821,9 @@ with tab_practice:
                     st.error(f"✗  {opt}")
                 else:
                     st.markdown(f"&nbsp;&nbsp;&nbsp;{opt}")
+
+            if is_correct:
+                _confetti()
 
             xp_label = f"+{xp} XP — Correct!" if is_correct else f"+{xp} XP — Not quite."
             color    = "#B87C65" if is_correct else "#8C8881"
