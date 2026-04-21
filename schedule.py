@@ -263,3 +263,71 @@ def days_until_next_exam(as_of: date = None) -> int | None:
     if not exam:
         return None
     return (exam[1] - (as_of or date.today())).days
+
+
+def get_weighted_topics_with_performance(progress: dict, all_cards: list,
+                                         num_questions: int = 10,
+                                         as_of: date = None) -> dict:
+    """
+    Combined topic weighting: recency × inverse-performance.
+
+    Algorithm:
+      combined_weight = recency_weight × performance_multiplier
+
+    Performance multipliers (based on SM-2 accuracy per topic):
+      < 40%  → 2.0×   (struggling — urgent reinforcement)
+      40-60% → 1.5×   (below target)
+      60-80% → 1.0×   (on track)
+      ≥ 80%  → 0.7×   (strong — still needs spaced review)
+      no data→ 1.2×   (unseen — slight priority boost)
+
+    This ensures recent material you're weak at rises to the top,
+    while strong material from long ago naturally fades in frequency.
+    """
+    base = get_weighted_topics(as_of, num_questions)
+    if not base["topic_plan"]:
+        return base
+
+    # Build topic accuracy map from SM-2 history
+    from progress import get_weak_spots
+    weak_list = get_weak_spots(progress, all_cards) if all_cards else []
+    accuracy_map = {w["topic"]: w["accuracy"] for w in weak_list}
+
+    for entry in base["topic_plan"]:
+        acc = accuracy_map.get(entry["topic"])
+        if acc is None:
+            mult, perf_label = 1.2, "New"
+        elif acc < 0.40:
+            mult, perf_label = 2.0, f"{int(acc*100)}% — needs work"
+        elif acc < 0.60:
+            mult, perf_label = 1.5, f"{int(acc*100)}% — below target"
+        elif acc < 0.80:
+            mult, perf_label = 1.0, f"{int(acc*100)}% — on track"
+        else:
+            mult, perf_label = 0.7, f"{int(acc*100)}% — strong"
+
+        entry["accuracy"]       = acc
+        entry["perf_label"]     = perf_label
+        entry["combined_weight"] = round(entry["weight"] * mult, 2)
+
+    # Re-allocate question counts by combined weight
+    total_w = sum(e["combined_weight"] for e in base["topic_plan"]) or 1
+    for entry in base["topic_plan"]:
+        entry["num_questions"] = max(1, round(entry["combined_weight"] / total_w * num_questions))
+
+    # Trim to exact total
+    diff = sum(e["num_questions"] for e in base["topic_plan"]) - num_questions
+    for entry in sorted(base["topic_plan"], key=lambda x: x["combined_weight"]):
+        if diff == 0: break
+        if diff > 0 and entry["num_questions"] > 1:
+            entry["num_questions"] -= 1; diff -= 1
+        elif diff < 0:
+            entry["num_questions"] += 1; diff += 1
+
+    # Build focus summary for the dashboard
+    top3 = sorted(base["topic_plan"], key=lambda x: x["combined_weight"], reverse=True)[:3]
+    base["focus_summary"] = " · ".join(
+        f"{e['topic']} ({e['perf_label']})" for e in top3
+    )
+    base["top_topics"] = top3
+    return base

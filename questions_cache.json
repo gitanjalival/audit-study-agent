@@ -1,0 +1,392 @@
+{
+  "generated_at": "2026-04-21",
+  "questions": [
+    {
+      "id": "q-audit-risk-formula",
+      "question": "The audit risk model states AR = IR × CR × DR. An auditor has assessed inherent risk at 0.8 and control risk at 0.5, and wants overall audit risk to be no more than 0.05. What is the maximum allowable detection risk?",
+      "options": ["A. 0.125", "B. 0.10", "C. 0.25", "D. 0.04"],
+      "correct": "A",
+      "explanation": "DR = AR / (IR × CR) = 0.05 / (0.8 × 0.5) = 0.05 / 0.40 = 0.125. Detection risk is the only component the auditor directly controls through substantive procedures.",
+      "topic": "Audit Risk Model",
+      "class_num": 3
+    },
+    {
+      "id": "q-tracing-vs-vouching",
+      "question": "An auditor is concerned that sales may be recorded that never actually occurred. Which direction of testing provides the most relevant evidence for this assertion?",
+      "options": ["A. Tracing from shipping documents to the sales journal", "B. Vouching from the sales journal back to shipping documents", "C. Tracing from the sales journal to cash receipts", "D. Vouching from customer orders to the accounts receivable ledger"],
+      "correct": "B",
+      "explanation": "Vouching goes from the recorded amount back to source documents, testing the existence/occurrence assertion — did this recorded transaction actually happen? Tracing goes forward from source documents and tests completeness (nothing was omitted).",
+      "topic": "Audit Evidence",
+      "class_num": 5
+    },
+    {
+      "id": "q-completeness-direction",
+      "question": "To test whether all inventory items that exist have been recorded in the books, the auditor should:",
+      "options": ["A. Vouch from the perpetual inventory listing to the physical count", "B. Trace from the physical count to the perpetual inventory listing", "C. Confirm inventory quantities with suppliers", "D. Inspect purchase invoices for items on the listing"],
+      "correct": "B",
+      "explanation": "Completeness asks whether all items that should be included are included. Tracing starts from the physical reality (the count) and checks whether those items appear in the records — if something is missing from the records, tracing will find it.",
+      "topic": "Audit Evidence",
+      "class_num": 5
+    },
+    {
+      "id": "q-coso-components",
+      "question": "Under the COSO Internal Control framework, which component refers to the attitudes, awareness, and actions of management regarding internal control?",
+      "options": ["A. Risk Assessment", "B. Control Activities", "C. Control Environment", "D. Monitoring Activities"],
+      "correct": "C",
+      "explanation": "The Control Environment is the 'tone at the top' — it sets the foundation for all other components. It includes management's philosophy, integrity, ethical values, and commitment to competence. Risk Assessment involves identifying and analyzing risks to achieving objectives.",
+      "topic": "Internal Controls",
+      "class_num": 7
+    },
+    {
+      "id": "q-preventive-vs-detective",
+      "question": "A bank requires dual authorization for all wire transfers over $50,000. This is best classified as a:",
+      "options": ["A. Detective control, because it catches errors after they occur", "B. Preventive control, because it stops unauthorized transactions before they execute", "C. Corrective control, because it resolves authorization issues", "D. Compensating control, because it substitutes for a missing control"],
+      "correct": "B",
+      "explanation": "Preventive controls are designed to stop misstatements or irregularities from occurring in the first place. Requiring dual authorization blocks an unauthorized transfer before it happens. Detective controls, like bank reconciliations, identify problems after they have already occurred.",
+      "topic": "Internal Controls",
+      "class_num": 7
+    },
+    {
+      "id": "q-material-weakness-def",
+      "question": "Under PCAOB AS 2201, a material weakness is defined as a deficiency or combination of deficiencies in ICFR such that:",
+      "options": ["A. A significant misstatement is reasonably possible but not likely", "B. There is a reasonable possibility that a material misstatement will not be prevented or detected on a timely basis", "C. An internal auditor would likely detect the misstatement", "D. Management has identified but not remediated the deficiency"],
+      "correct": "B",
+      "explanation": "A material weakness exists when there is a reasonable possibility (more than remote) that a material misstatement of the financial statements would not be prevented or detected on a timely basis. This is a higher severity threshold than a significant deficiency.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-sig-deficiency-vs-mw",
+      "question": "How does a significant deficiency differ from a material weakness?",
+      "options": ["A. A significant deficiency involves immaterial amounts; a material weakness involves material amounts", "B. A significant deficiency is less severe — it is important enough to warrant attention but does not rise to the level of a material weakness", "C. A significant deficiency must be disclosed in the audit report; a material weakness is communicated only to management", "D. There is no difference — the terms are used interchangeably under PCAOB standards"],
+      "correct": "B",
+      "explanation": "Both are deficiencies in ICFR, but a significant deficiency is less severe than a material weakness. It is important enough to merit attention by those responsible for financial reporting. Both must be communicated to the audit committee, but only material weaknesses require disclosure in the auditor's ICFR opinion.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-revenue-fraud-risk",
+      "question": "Under PCAOB AS 2401, why is revenue recognition presumed to be a fraud risk in virtually every audit?",
+      "options": ["A. Because revenue is always the largest account on the income statement", "B. Because management has strong incentives and opportunity to manipulate revenue to meet earnings targets", "C. Because revenue transactions are too numerous to test individually", "D. Because customers frequently dispute invoice amounts"],
+      "correct": "B",
+      "explanation": "Revenue recognition is presumed to be a fraud risk because management faces pressure to meet earnings expectations, has the ability to manipulate the timing and amount of revenue recorded, and the effects can be material. Auditors must rebut this presumption with documented reasoning if they conclude it does not apply.",
+      "topic": "Fraud Risk",
+      "class_num": 9
+    },
+    {
+      "id": "q-mrc-definition",
+      "question": "A management review control (MRC) is best described as:",
+      "options": ["A. A control performed by internal audit to assess the effectiveness of management's processes", "B. A high-level control in which management compares actual results to expectations and investigates significant variances", "C. An automated control embedded in the accounting software that flags unusual transactions", "D. A control activity documented in the company's control matrix"],
+      "correct": "B",
+      "explanation": "MRCs are controls where management reviews data (e.g., budget vs. actual, trend analysis) and takes action when results differ from expectations. Because they are manual and judgment-based, auditors must assess the precision of the review and whether management would actually detect a material error.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-ipe-completeness",
+      "question": "When auditing a management review control that relies on a system-generated report, the auditor must test the completeness and accuracy of the report. This is because:",
+      "options": ["A. GAAP requires auditors to verify all underlying data used in management's estimates", "B. If the report is incomplete or inaccurate, the MRC itself cannot effectively prevent or detect misstatements", "C. ITGCs only apply to automated controls, not to reports used in manual reviews", "D. Regulators require independent re-creation of all management reports"],
+      "correct": "B",
+      "explanation": "Information produced by the entity (IPE) underlies many MRCs. If the report feeding the review contains errors or omissions, management's review will be ineffective even if executed perfectly. Testing IPE is therefore required to place reliance on the MRC.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-itgc-categories",
+      "question": "IT General Controls (ITGCs) are best described as:",
+      "options": ["A. Application-level controls that validate individual transactions as they are processed", "B. Pervasive controls over the IT environment that support the reliability of application controls and automated data", "C. Controls implemented by end-users in spreadsheets and databases", "D. Controls required under SOX Section 302 that management certifies each quarter"],
+      "correct": "B",
+      "explanation": "ITGCs operate at the infrastructure level — covering areas like access management, change management, and computer operations. They are pervasive because they affect many applications simultaneously. If ITGCs are weak, automated application controls and system-generated reports may be unreliable.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-walkthrough-purpose",
+      "question": "Under PCAOB AS 2201, what is the primary purpose of performing a walkthrough of a significant process?",
+      "options": ["A. To test the operating effectiveness of controls over a full period", "B. To confirm that the auditor's understanding of the process and controls is accurate and complete", "C. To substitute for testing a sample of transactions", "D. To document that management has designed effective controls"],
+      "correct": "B",
+      "explanation": "A walkthrough traces one transaction from origination through financial reporting. It is used to confirm and deepen the auditor's understanding of the flow of transactions, identify where misstatements could occur, and verify that controls are in place as described. It is a design-effectiveness procedure, not a test of operating effectiveness.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-attributes-sampling-objective",
+      "question": "Attributes sampling is used in auditing primarily to:",
+      "options": ["A. Estimate the total dollar amount of errors in a population", "B. Estimate the rate of deviation from a prescribed control procedure", "C. Select a random sample of transactions for substantive testing", "D. Determine the appropriate sample size for a confirmation request"],
+      "correct": "B",
+      "explanation": "Attributes sampling estimates the deviation rate — the proportion of transactions that do not comply with a specific control. The auditor compares the sample deviation rate to a tolerable deviation rate. If the sample rate exceeds the tolerable rate, the control cannot be relied upon to reduce substantive testing.",
+      "topic": "Sampling",
+      "class_num": 11
+    },
+    {
+      "id": "q-risk-overreliance",
+      "question": "In attributes sampling, 'risk of overreliance' (also called risk of incorrect acceptance) means the auditor risks:",
+      "options": ["A. Concluding that a control is effective when it actually is not", "B. Concluding that a control is ineffective when it actually works well", "C. Setting the tolerable deviation rate too high", "D. Testing too large a sample and wasting audit resources"],
+      "correct": "A",
+      "explanation": "Risk of overreliance is the sampling risk that the sample supports relying on a control, when in fact the actual population deviation rate exceeds the tolerable rate. This is the more dangerous error because it leads the auditor to reduce substantive procedures inappropriately. Risk of underreliance (incorrect rejection) leads to unnecessary work but not to incorrect conclusions.",
+      "topic": "Sampling",
+      "class_num": 11
+    },
+    {
+      "id": "q-missing-document-deviation",
+      "question": "An auditor is testing a purchase approval control by inspecting purchase orders for an authorization signature. For 3 of 60 items selected, the purchase order cannot be located. How should the auditor treat these?",
+      "options": ["A. As non-deviations, since the control may have been performed but the document was lost", "B. As deviations, since a missing document is treated as a deviation from the prescribed control procedure", "C. As scope limitations requiring the auditor to expand the sample", "D. As errors requiring the auditor to project a dollar error to the population"],
+      "correct": "B",
+      "explanation": "In attributes sampling, a missing document is treated as a deviation. The auditor cannot verify that the control was performed if the evidence no longer exists. The deviation rate would be 3/60 = 5%, which the auditor would compare to the tolerable deviation rate.",
+      "topic": "Sampling",
+      "class_num": 11
+    },
+    {
+      "id": "q-mus-sampling-interval",
+      "question": "When performing monetary unit sampling (MUS) with a population of $4,000,000, a tolerable misstatement of $200,000, and a risk factor of 3.0, the sampling interval is approximately:",
+      "options": ["A. $66,667", "B. $200,000", "C. $133,333", "D. $20,000"],
+      "correct": "A",
+      "explanation": "Sample size = Risk factor / (Tolerable misstatement / Population) = 3.0 / (200,000 / 4,000,000) = 3.0 / 0.05 = 60 items. Sampling interval = Population / Sample size = $4,000,000 / 60 = $66,667. Each dollar in the population has an equal chance of selection.",
+      "topic": "Sampling",
+      "class_num": 12
+    },
+    {
+      "id": "q-mus-taint",
+      "question": "In MUS, a sampled item with a book value of $8,000 has an audit value of $5,000. The tainting percentage and projected misstatement for that sampling interval of $66,667 are:",
+      "options": ["A. Taint = 37.5%; Projected misstatement = $25,000", "B. Taint = 37.5%; Projected misstatement = $3,000", "C. Taint = 62.5%; Projected misstatement = $41,667", "D. Taint = 37.5%; Projected misstatement = $24,900"],
+      "correct": "A",
+      "explanation": "Tainting % = (Book value − Audit value) / Book value = $3,000 / $8,000 = 37.5%. Projected misstatement = Tainting % × Sampling interval = 37.5% × $66,667 = $25,000. This projects the error rate found in the sample to the entire interval.",
+      "topic": "Sampling",
+      "class_num": 12
+    },
+    {
+      "id": "q-cash-cutoff",
+      "question": "To test the completeness assertion for cash, an auditor would most likely:",
+      "options": ["A. Confirm year-end cash balances directly with the bank", "B. Obtain a cutoff bank statement covering the first 10–15 days after year-end and trace outstanding checks", "C. Inspect the company's bank reconciliation and test mathematical accuracy", "D. Vouch large deposits to the accounts receivable subsidiary ledger"],
+      "correct": "B",
+      "explanation": "A cutoff bank statement allows the auditor to verify that outstanding checks listed on the year-end reconciliation cleared shortly after year-end, and that any deposits in transit were received by the bank. This tests that the cash balance is complete and the reconciliation is accurate.",
+      "topic": "Substantive Testing",
+      "class_num": 13
+    },
+    {
+      "id": "q-lapping-scheme",
+      "question": "A lapping scheme most directly exploits which weakness in internal controls?",
+      "options": ["A. Lack of segregation of duties between cash receipts and accounts receivable recording", "B. Failure to reconcile the general ledger to subsidiary ledgers monthly", "C. Absence of a lockbox arrangement for customer payments", "D. Inadequate IT general controls over the billing system"],
+      "correct": "A",
+      "explanation": "Lapping involves stealing a customer payment and covering it by applying a later payment from another customer. It requires the same person to handle cash receipts and post to the accounts receivable ledger. Proper segregation of duties — separating custody of cash from record-keeping — prevents lapping.",
+      "topic": "Fraud Risk",
+      "class_num": 9
+    },
+    {
+      "id": "q-ar-confirmation-existence",
+      "question": "Confirmations of accounts receivable are primarily designed to test which financial statement assertion?",
+      "options": ["A. Valuation — that receivables are carried at net realizable value", "B. Completeness — that all receivables are recorded", "C. Existence — that recorded receivables represent valid amounts owed by real customers", "D. Cutoff — that transactions are recorded in the correct period"],
+      "correct": "C",
+      "explanation": "Positive confirmations ask customers to confirm whether the balance is correct, directly testing existence (the debtor exists and owes that amount). Valuation is tested through analysis of the allowance for doubtful accounts; completeness is tested by tracing from shipping documents to the ledger.",
+      "topic": "Substantive Testing",
+      "class_num": 13
+    },
+    {
+      "id": "q-unrecorded-liabilities",
+      "question": "To detect unrecorded accounts payable at year-end, the most effective procedure is:",
+      "options": ["A. Vouch recorded payables to vendor invoices", "B. Search for invoices received after year-end that relate to goods or services received before year-end", "C. Confirm payable balances directly with vendors", "D. Recalculate accruals for known recurring expenses"],
+      "correct": "B",
+      "explanation": "Unrecorded liabilities are a completeness problem — amounts owed that are not on the books. Reviewing subsequent disbursements and invoices received after year-end that relate to pre-year-end activity directly addresses this. Vouching tests existence of recorded items, not items that are missing.",
+      "topic": "Substantive Testing",
+      "class_num": 13
+    },
+    {
+      "id": "q-inventory-observation",
+      "question": "An auditor's attendance at the client's physical inventory count is primarily designed to obtain evidence about which assertion?",
+      "options": ["A. Valuation — that inventory is carried at the lower of cost or net realizable value", "B. Existence — that inventory quantities on the count sheets represent inventory that physically exists", "C. Rights and obligations — that the company owns the inventory", "D. Completeness — that all inventory owned has been counted"],
+      "correct": "B",
+      "explanation": "Physical observation gives the auditor direct, first-hand evidence that the inventory actually exists in the quantities claimed. It primarily tests existence. The auditor also performs test counts and traces them to count sheets to partially address completeness, but existence is the primary assertion addressed.",
+      "topic": "Substantive Testing",
+      "class_num": 13
+    },
+    {
+      "id": "q-inventory-cutoff",
+      "question": "Near year-end, an auditor notes receiving reports for shipments that arrived December 28 were not recorded until January 5. This most likely indicates a misstatement in which direction?",
+      "options": ["A. Inventory and accounts payable are overstated at year-end", "B. Inventory and accounts payable are understated at year-end", "C. Cost of goods sold is overstated and inventory is understated", "D. Revenue and accounts receivable are overstated"],
+      "correct": "B",
+      "explanation": "If goods arrived before year-end but were not recorded until after, inventory is understated (the goods exist but aren't on the books) and accounts payable is understated (the liability hasn't been recorded). This is a cutoff error affecting the completeness of both inventory and liabilities.",
+      "topic": "Substantive Testing",
+      "class_num": 13
+    },
+    {
+      "id": "q-je-testing",
+      "question": "PCAOB standards require auditors to test journal entries as part of the response to fraud risk. Auditors most commonly focus on which journal entries?",
+      "options": ["A. Routine, system-generated entries that are processed automatically", "B. Entries posted by the CFO only", "C. Unusual or nonstandard entries, especially those posted near period-end or to round numbers", "D. Entries that have been reviewed and approved by the audit committee"],
+      "correct": "C",
+      "explanation": "Fraudulent journal entries tend to be unusual, made near period-end to affect reported results, and posted to accounts that are difficult to audit. Routine, system-generated entries are lower risk. The auditor should request a complete population of journal entries and apply criteria to identify higher-risk entries for testing.",
+      "topic": "Fraud Risk",
+      "class_num": 9
+    },
+    {
+      "id": "q-professional-skepticism",
+      "question": "Professional skepticism in auditing means:",
+      "options": ["A. Assuming that all management representations are false until proven otherwise", "B. Maintaining a questioning mind and critically assessing audit evidence without assuming honesty or dishonesty", "C. Applying greater scrutiny only when fraud indicators are present", "D. Documenting all disagreements with management in the workpapers"],
+      "correct": "B",
+      "explanation": "Professional skepticism is a questioning mindset combined with critical assessment of evidence. It does not mean automatic distrust, but it does mean the auditor does not uncritically accept management's representations. It should be applied throughout the engagement regardless of the auditor's prior experience with the client.",
+      "topic": "Professional Judgment",
+      "class_num": 15
+    },
+    {
+      "id": "q-confirmation-bias",
+      "question": "An auditor who finds early evidence suggesting that an account is fairly stated and then interprets all subsequent ambiguous evidence as supportive of that conclusion is exhibiting:",
+      "options": ["A. Anchoring bias", "B. Confirmation bias", "C. Availability heuristic", "D. Overconfidence bias"],
+      "correct": "B",
+      "explanation": "Confirmation bias is the tendency to search for, interpret, and recall information in a way that confirms pre-existing beliefs. In auditing, it can cause the auditor to underweight evidence of misstatement. Anchoring bias occurs when the auditor is overly influenced by an initial reference point (e.g., the prior year balance).",
+      "topic": "Professional Judgment",
+      "class_num": 15
+    },
+    {
+      "id": "q-anchoring-bias",
+      "question": "An auditor sets the prior year allowance for doubtful accounts as the starting point for evaluating the current year estimate and makes only minor adjustments from there, even though the client's receivables profile changed significantly. This is an example of:",
+      "options": ["A. Confirmation bias", "B. Anchoring bias", "C. Availability heuristic", "D. Framing effect"],
+      "correct": "B",
+      "explanation": "Anchoring occurs when an auditor places too much weight on an initial reference value (the anchor) and adjusts insufficiently from it. The prior year balance should be a starting point for analysis, not a constraint on the auditor's independent judgment about the current year estimate.",
+      "topic": "Professional Judgment",
+      "class_num": 15
+    },
+    {
+      "id": "q-independence-threat",
+      "question": "An audit partner owns 200 shares of a client's stock. Under the AICPA Code of Professional Conduct, this most directly creates which threat to independence?",
+      "options": ["A. Advocacy threat", "B. Self-review threat", "C. Financial self-interest threat", "D. Familiarity threat"],
+      "correct": "C",
+      "explanation": "A financial interest in a client creates a self-interest threat — the auditor's financial position could be influenced by the client's reported results, impairing objectivity. For covered persons under SEC rules and PCAOB standards, even a direct financial interest in an attest client constitutes an independence violation.",
+      "topic": "Professional Judgment",
+      "class_num": 15
+    },
+    {
+      "id": "q-unqualified-opinion",
+      "question": "An auditor issues an unmodified (clean) opinion when:",
+      "options": ["A. No misstatements were found during the audit", "B. The financial statements are presented fairly in all material respects in conformity with the applicable financial reporting framework", "C. The client has no material weaknesses in internal control", "D. Management has confirmed that the financial statements are free of fraud"],
+      "correct": "B",
+      "explanation": "An unmodified opinion states that the financial statements are presented fairly in all material respects — it is not a guarantee of accuracy to the last dollar, but rather a conclusion that any remaining misstatements are immaterial. The presence or absence of control deficiencies does not directly determine the financial statement opinion.",
+      "topic": "Audit Opinions",
+      "class_num": 16
+    },
+    {
+      "id": "q-qualified-opinion",
+      "question": "An auditor issues a qualified opinion (with an 'except for' paragraph) when:",
+      "options": ["A. There is a pervasive material misstatement affecting many accounts", "B. There is a scope limitation or material misstatement that is material but not pervasive", "C. The auditor disagrees with management on an accounting principle but the effect is immaterial", "D. Going concern issues are identified"],
+      "correct": "B",
+      "explanation": "A qualified opinion is appropriate when there is a material but not pervasive departure from GAAP or a scope limitation. The phrase 'except for' signals the specific issue. If the misstatement or scope limitation is so pervasive it affects the overall presentation, an adverse opinion or disclaimer of opinion is appropriate, respectively.",
+      "topic": "Audit Opinions",
+      "class_num": 16
+    },
+    {
+      "id": "q-adverse-opinion",
+      "question": "An adverse opinion is most appropriate when:",
+      "options": ["A. There is a material misstatement that is isolated to one account", "B. The auditor was unable to obtain sufficient evidence on a specific item", "C. The financial statements are so materially misstated that they do not present fairly as a whole", "D. Management refuses to provide a management representation letter"],
+      "correct": "C",
+      "explanation": "An adverse opinion states that the financial statements do NOT present fairly. It is reserved for situations where misstatements are both material and pervasive — they affect so many accounts or are so fundamental that the statements as a whole cannot be relied upon. A refusal to provide a rep letter is more likely to lead to a disclaimer.",
+      "topic": "Audit Opinions",
+      "class_num": 16
+    },
+    {
+      "id": "q-going-concern",
+      "question": "When substantial doubt exists about a company's ability to continue as a going concern, and management has plans to address this that the auditor finds adequate, the auditor should:",
+      "options": ["A. Issue an adverse opinion due to the uncertainty", "B. Issue an unmodified opinion with no additional communication", "C. Issue an unmodified opinion with an explanatory paragraph or emphasis-of-matter paragraph about the going concern uncertainty", "D. Withdraw from the engagement"],
+      "correct": "C",
+      "explanation": "If management's plans adequately mitigate the going concern doubt, the auditor issues an unmodified opinion but adds an explanatory paragraph to highlight the substantial doubt and management's plans. If management's plans do not adequately address the doubt, a qualified or adverse opinion may be appropriate.",
+      "topic": "Audit Opinions",
+      "class_num": 16
+    },
+    {
+      "id": "q-subsequent-events-type1",
+      "question": "A customer who owed a material receivable at December 31 filed for bankruptcy in February before the audit report was issued. This is a:",
+      "options": ["A. Type I subsequent event that requires adjustment of the financial statements", "B. Type II subsequent event that requires disclosure only", "C. Type I subsequent event that requires disclosure only", "D. Non-event because it occurred after year-end"],
+      "correct": "A",
+      "explanation": "Type I (recognized) subsequent events provide evidence about conditions that existed at the balance sheet date. The customer's financial difficulty likely existed at December 31 — the bankruptcy merely confirms it. The receivable must be written down (adjusted) to reflect the impaired value as of year-end.",
+      "topic": "Concluding the Audit",
+      "class_num": 14
+    },
+    {
+      "id": "q-subsequent-events-type2",
+      "question": "In February, before the audit report is issued, the client settles a major lawsuit that arose from a January event. This is most likely:",
+      "options": ["A. A Type I subsequent event requiring adjustment to year-end accruals", "B. A Type II subsequent event requiring disclosure but not adjustment", "C. Irrelevant because the lawsuit arose after year-end", "D. A going concern indicator requiring an explanatory paragraph"],
+      "correct": "B",
+      "explanation": "Type II (non-recognized) subsequent events relate to conditions that arose after the balance sheet date. Since the lawsuit itself arose in January, no year-end liability existed. However, if the amount is material, it should be disclosed so users of the financial statements are not misled about the company's post-year-end financial position.",
+      "topic": "Concluding the Audit",
+      "class_num": 14
+    },
+    {
+      "id": "q-mgmt-rep-letter",
+      "question": "The management representation letter is required by auditing standards. Which of the following best describes its primary purpose?",
+      "options": ["A. It substitutes for audit procedures in areas where evidence is difficult to obtain", "B. It provides written confirmation of oral representations made by management and acknowledges management's responsibility for the financial statements", "C. It shifts legal liability for misstatements from the auditor to management", "D. It documents the auditor's conclusions about internal control effectiveness"],
+      "correct": "B",
+      "explanation": "The rep letter formalizes in writing the significant oral representations management made during the audit and reminds management of its responsibility for the financial statements and disclosures. It does not substitute for other audit evidence and does not transfer legal liability, but its absence (or refusal to sign) is a scope limitation.",
+      "topic": "Concluding the Audit",
+      "class_num": 14
+    },
+    {
+      "id": "q-engagement-letter",
+      "question": "The primary purpose of an audit engagement letter is to:",
+      "options": ["A. Document the auditor's planned audit procedures", "B. Establish the terms of the audit engagement including responsibilities, scope, and fee arrangements", "C. Communicate significant deficiencies and material weaknesses to management", "D. Confirm the auditor's independence from the client"],
+      "correct": "B",
+      "explanation": "The engagement letter is a contract between the auditor and client that documents the objective and scope of the audit, responsibilities of both parties, the applicable financial reporting framework, and fee arrangements. It reduces misunderstandings about the nature of the engagement.",
+      "topic": "Audit Planning",
+      "class_num": 2
+    },
+    {
+      "id": "q-analytical-procedures-planning",
+      "question": "During the planning phase, analytical procedures are used primarily to:",
+      "options": ["A. Test specific account balances for misstatement", "B. Identify unusual relationships, trends, or fluctuations that may indicate areas of heightened risk requiring more attention", "C. Provide substantive evidence about the completeness of revenue", "D. Confirm the auditor's risk of material misstatement assessments from the prior year"],
+      "correct": "B",
+      "explanation": "In planning, analytical procedures help the auditor develop an understanding of the client's business and identify risk areas — accounts or transactions where the numbers seem inconsistent with expectations, which may indicate a higher risk of misstatement. They are not used as primary substantive evidence at this stage.",
+      "topic": "Audit Planning",
+      "class_num": 2
+    },
+    {
+      "id": "q-materiality-tolerable",
+      "question": "An auditor sets overall materiality at $500,000. Tolerable misstatement for a specific account is typically set:",
+      "options": ["A. Equal to overall materiality to be consistent", "B. Below overall materiality, to allow for the possibility that multiple accounts each contain misstatements that together exceed materiality", "C. Above overall materiality, since individual accounts are less significant than the financial statements as a whole", "D. At the same level as performance materiality under PCAOB standards"],
+      "correct": "B",
+      "explanation": "Tolerable misstatement (sometimes called performance materiality) is set below overall materiality to reduce the risk that the aggregate of individually immaterial misstatements across multiple accounts could be material when combined. If each account is tested at overall materiality, uncorrected errors could aggregate to a material amount.",
+      "topic": "Audit Planning",
+      "class_num": 2
+    },
+    {
+      "id": "q-evidence-hierarchy",
+      "question": "Rank these audit evidence types from most to least persuasive: (1) auditor-created recalculation, (2) third-party confirmation, (3) client-prepared document with no external verification, (4) physical inspection by auditor.",
+      "options": ["A. 1, 4, 2, 3", "B. 4, 2, 1, 3", "C. 2, 4, 1, 3", "D. 1, 2, 4, 3"],
+      "correct": "C",
+      "explanation": "Third-party confirmations (2) are highly reliable because they come from independent sources. Physical inspection (4) provides direct first-hand evidence the auditor obtains personally. Recalculations (1) are reliable for mathematical accuracy but limited to what the auditor calculates. Client documents (3) without external corroboration are least reliable since the client could have manipulated them.",
+      "topic": "Audit Evidence",
+      "class_num": 5
+    },
+    {
+      "id": "q-pcaob-as2301-scope",
+      "question": "PCAOB AS 2301 (The Auditor's Response to the Risks of Material Misstatement) primarily requires the auditor to:",
+      "options": ["A. Document all internal control deficiencies identified during the audit", "B. Design and implement audit procedures that are responsive to the assessed risks of material misstatement at both the financial statement and assertion levels", "C. Confirm that management has remediated all significant deficiencies", "D. Report identified fraud risks directly to the SEC"],
+      "correct": "B",
+      "explanation": "AS 2301 establishes that the auditor must link risk assessment to audit procedures — higher assessed risk requires more persuasive evidence, larger samples, and procedures performed closer to year-end. Both overall financial statement risk (e.g., management override) and assertion-level risk drive procedure design.",
+      "topic": "ICFR and AS 2201",
+      "class_num": 8
+    },
+    {
+      "id": "q-predecessor-auditor",
+      "question": "Before accepting a new audit engagement, a successor auditor should:",
+      "options": ["A. Review the predecessor's workpapers to confirm audit quality", "B. Inquire of the predecessor auditor about disagreements with management, reasons for the change, and any integrity concerns", "C. Issue a letter to the client acknowledging receipt of the prior year audit report", "D. Perform preliminary analytical procedures using the prior year audited financial statements"],
+      "correct": "B",
+      "explanation": "Communicating with the predecessor auditor is required under auditing standards before accepting a new engagement. The purpose is to understand whether there were disagreements about accounting policies, whether management has integrity issues, and whether anything about the prior relationship would affect the decision to accept the client.",
+      "topic": "Audit Planning",
+      "class_num": 2
+    },
+    {
+      "id": "q-lead-schedule",
+      "question": "A lead schedule in an audit workpaper package serves to:",
+      "options": ["A. Document the auditor's overall materiality and performance materiality calculations", "B. Summarize the components of a financial statement line item and cross-reference to supporting schedules", "C. List the audit procedures performed for a specific account", "D. Reconcile the trial balance to the general ledger"],
+      "correct": "B",
+      "explanation": "A lead schedule is a summary workpaper for a financial statement caption (e.g., Accounts Receivable) that shows the major components, cross-references to detailed supporting schedules, and any adjusting entries. It bridges the trial balance to the detailed testing and allows a reviewer to understand the account at a glance.",
+      "topic": "Audit Planning",
+      "class_num": 2
+    },
+    {
+      "id": "q-management-override",
+      "question": "Management override of controls is considered a significant risk in virtually every audit because:",
+      "options": ["A. Management always has incentives to commit fraud", "B. Controls can be designed to prevent employee errors but cannot be designed to prevent management from overriding them", "C. Auditors are not allowed to test journal entries made by senior management", "D. GAAP requires auditors to assume management override exists until proven otherwise"],
+      "correct": "B",
+      "explanation": "Well-designed controls can prevent and detect errors and fraud by employees, but management itself has the authority to override those controls. This creates an inherent gap in internal control effectiveness. Auditing standards respond to this risk by requiring specific procedures such as journal entry testing, reviewing accounting estimates for bias, and evaluating unusual significant transactions.",
+      "topic": "Fraud Risk",
+      "class_num": 9
+    }
+  ]
+}

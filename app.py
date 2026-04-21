@@ -15,6 +15,9 @@ from datetime import date
 import streamlit as st
 
 from agent import generate_summary, generate_study_plan
+from quiz import (load_questions, get_weighted_questions,
+                  build_interleaved_queue, record_quiz_attempt,
+                  XP_CORRECT, XP_ATTEMPT)
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
 from progress import (load_progress, save_progress, record_review, get_today_stats,
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
@@ -261,6 +264,7 @@ for k, v in {
     "flash_queue":[], "flash_idx":0, "flash_flipped":False, "flash_correct":0,
     "flash_generating":False, "flash_gen_error":None,
     "session_xp":0, "session_ratings":[], "new_achievements":[],
+    "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
     "api_key":"",
 }.items():
@@ -512,39 +516,59 @@ with tab_flash:
 
     # ── Dashboard — cards exist, no active session ────────────────────────────
     elif not st.session_state.flash_queue:
-        stats  = get_today_stats(progress)
-        counts = count_due(all_cards, progress)
-        total  = counts["due"] + counts["new"]
+        stats      = get_today_stats(progress)
+        counts     = count_due(all_cards, progress)
+        card_total = counts["due"] + counts["new"]
+        all_qs     = load_questions()
+
+        # Algorithm: combined recency × performance weighting
+        from schedule import get_weighted_topics_with_performance
+        algo = get_weighted_topics_with_performance(progress, all_cards, num_questions=5)
+        focus = algo.get("focus_summary", "")
 
         # Stat row
         c1, c2, c3 = st.columns(3)
         c1.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["streak"]}</div><div class="stat-label">Day streak</div></div>', unsafe_allow_html=True)
         c2.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["cards_today"]}</div><div class="stat-label">Today</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="stat-tile"><div class="stat-value">{total}</div><div class="stat-label">Due</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="stat-tile"><div class="stat-value">{card_total}</div><div class="stat-label">Due</div></div>', unsafe_allow_html=True)
 
         # Streak calendar
         st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
 
-        if total > 0:
+        n_quiz = min(5, len(all_qs)) if all_qs else 0
+
+        if card_total > 0 or n_quiz > 0:
+            body = f"{counts['due']} reviews · {counts['new']} new cards"
+            if n_quiz:
+                body += f" · {n_quiz} practice questions"
+            if focus:
+                body += f"<br><br><span style='font-size:0.8rem;color:#8C8881'>Algorithm focus: {focus}</span>"
+            hero_title = "Today's session" if card_total > 0 else "Practice questions"
             st.markdown(
                 f'<div class="hero-card" style="margin-top:12px">'
                 f'<p class="hero-eyebrow">Ready to study</p>'
-                f'<h2 class="hero-title">{total} cards due today</h2>'
-                f'<p class="hero-body">{counts["due"]} reviews &nbsp;·&nbsp; {counts["new"]} new cards.<br>'
-                f'Consistent daily sessions are the single biggest predictor of exam performance.</p>'
+                f'<h2 class="hero-title">{hero_title}</h2>'
+                f'<p class="hero-body">{body}</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
             col = st.columns([1,2,1])[1]
             with col:
                 if st.button("Begin session", use_container_width=True, type="primary"):
-                    q = get_due_cards(all_cards, progress)
-                    st.session_state.flash_queue     = q
-                    st.session_state.flash_idx       = 0
-                    st.session_state.flash_flipped   = False
-                    st.session_state.flash_correct   = 0
-                    st.session_state.session_xp      = 0
-                    st.session_state.session_ratings = []
+                    cards_q  = get_due_cards(all_cards, progress)
+                    quiz_q   = get_weighted_questions(all_qs, progress, all_cards, n=n_quiz)
+                    from quiz import build_interleaved_queue
+                    mixed    = build_interleaved_queue(cards_q, quiz_q, ratio=3)
+                    st.session_state.flash_queue         = mixed
+                    st.session_state.flash_idx           = 0
+                    st.session_state.flash_flipped       = False
+                    st.session_state.flash_correct       = 0
+                    st.session_state.session_xp          = 0
+                    st.session_state.session_ratings     = []
+                    st.session_state.quiz_selected       = None
+                    st.session_state.quiz_answered       = False
+                    st.session_state.session_quiz_correct = 0
+                    st.session_state.session_quiz_total  = 0
                     st.rerun()
         else:
             st.markdown(
@@ -611,102 +635,180 @@ with tab_flash:
                     )
 
             # Stats chips
-            correct = st.session_state.flash_correct
-            total   = len(queue)
-            pct     = int(correct / total * 100) if total else 0
-            st.markdown(
-                f'<div class="chip-row" style="margin-bottom:20px">'
-                f'<span class="chip chip-sage">Streak: {get_today_stats(prog)["streak"]} days</span>'
-                f'<span class="chip chip-neutral">{correct}/{total} correct · {pct}%</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            fc      = st.session_state.flash_correct
+            ft      = sum(1 for x in queue if x.get("type","card")=="card")
+            qc      = st.session_state.session_quiz_correct
+            qt      = st.session_state.session_quiz_total
+            fpct    = int(fc / ft * 100) if ft else 0
+            qpct    = int(qc / qt * 100) if qt else 0
+            chips   = f'<span class="chip chip-sage">Streak: {get_today_stats(prog)["streak"]} days</span>'
+            if ft: chips += f'<span class="chip chip-neutral">Flashcards: {fc}/{ft} · {fpct}%</span>'
+            if qt: chips += f'<span class="chip chip-neutral">Quiz: {qc}/{qt} · {qpct}%</span>'
+            st.markdown(f'<div class="chip-row" style="margin-bottom:20px">{chips}</div>', unsafe_allow_html=True)
 
             col = st.columns([1,2,1])[1]
             with col:
                 if st.button("Back to dashboard", use_container_width=True, type="primary"):
-                    st.session_state.flash_queue    = []
-                    st.session_state.flash_idx      = 0
-                    st.session_state.session_xp     = 0
-                    st.session_state.session_ratings = []
+                    st.session_state.flash_queue         = []
+                    st.session_state.flash_idx           = 0
+                    st.session_state.session_xp          = 0
+                    st.session_state.session_ratings     = []
+                    st.session_state.quiz_selected       = None
+                    st.session_state.quiz_answered       = False
+                    st.session_state.session_quiz_correct = 0
+                    st.session_state.session_quiz_total  = 0
                     st.rerun()
 
-        # Active card
+        # Active item (card or quiz question)
         else:
-            card = queue[idx]
+            item = queue[idx]
             pct  = idx / len(queue) * 100
+            item_type = item.get("type", "card")
 
+            # Progress bar
+            total_cards = sum(1 for x in queue if x.get("type","card") == "card")
+            total_quiz  = sum(1 for x in queue if x.get("type") == "quiz")
+            label_str   = f"{'Card' if item_type=='card' else 'Question'} {idx+1} of {len(queue)}"
             st.markdown(
                 f'<div class="progress-row">'
-                f'<span class="progress-count">Card {idx+1} of {len(queue)}</span>'
+                f'<span class="progress-count">{label_str}</span>'
                 f'<span class="progress-count">{int(pct)}%</span>'
                 f'</div>'
                 f'<div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>',
                 unsafe_allow_html=True,
             )
 
-            fh = _html.escape(card.get("front",""))
-            bh = _html.escape(card.get("back",""))
-            th = _html.escape(card.get("topic",""))
+            # ── Flashcard ──────────────────────────────────────────────────
+            if item_type == "card":
+                fh = _html.escape(item.get("front",""))
+                bh = _html.escape(item.get("back",""))
+                th = _html.escape(item.get("topic",""))
 
-            if not flipped:
-                st.markdown(
-                    f'<div class="flip-card">'
-                    f'<span class="card-topic-pill">{th}</span>'
-                    f'<p class="card-q-label">Question</p>'
-                    f'<p class="card-question">{fh}</p>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-                col = st.columns([1,2,1])[1]
-                with col:
-                    if st.button("Reveal answer", use_container_width=True, type="primary"):
-                        st.session_state.flash_flipped = True
+                if not flipped:
+                    st.markdown(
+                        f'<div class="flip-card">'
+                        f'<span class="card-topic-pill">{th}</span>'
+                        f'<p class="card-q-label">Question</p>'
+                        f'<p class="card-question">{fh}</p>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                    col = st.columns([1,2,1])[1]
+                    with col:
+                        if st.button("Reveal answer", use_container_width=True, type="primary"):
+                            st.session_state.flash_flipped = True
+                            st.rerun()
+                else:
+                    st.markdown(
+                        f'<div class="flip-card">'
+                        f'<span class="card-topic-pill">{th}</span>'
+                        f'<p class="card-q-label">Question</p>'
+                        f'<p class="card-question-ghost">{fh}</p>'
+                        f'<div class="card-divider"></div>'
+                        f'<p class="card-q-label">Answer</p>'
+                        f'<p class="card-answer">{bh}</p>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown('<p class="rating-hint">How well did you know this?</p>', unsafe_allow_html=True)
+
+                    def _rate(r):
+                        prog = st.session_state.progress
+                        prog = record_review(prog, item["id"], r)
+                        xp   = XP_FOR_RATING.get(r, 0)
+                        prog = add_xp(prog, xp)
+                        st.session_state.progress = prog
+                        save_progress(prog)
+                        if r >= 3: st.session_state.flash_correct += 1
+                        st.session_state.session_xp      += xp
+                        st.session_state.session_ratings.append(r)
+                        st.session_state.flash_idx       += 1
+                        st.session_state.flash_flipped    = False
                         st.rerun()
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1:
+                        if st.button("Again\nForgot it", use_container_width=True, help="Forgot"): _rate(1)
+                    with c2:
+                        if st.button("Hard\nStruggled",  use_container_width=True, help="Struggled"): _rate(2)
+                    with c3:
+                        if st.button("Good\nKnew it",    use_container_width=True, help="Knew it"): _rate(3)
+                    with c4:
+                        if st.button("Easy\nToo easy",   use_container_width=True, help="Too easy"): _rate(4)
+
+            # ── Quiz (MC) question ─────────────────────────────────────────
             else:
+                qh   = _html.escape(item.get("question",""))
+                th   = _html.escape(item.get("topic",""))
+                opts = item.get("options", [])
+                answered = st.session_state.quiz_answered
+                selected = st.session_state.quiz_selected
+
                 st.markdown(
                     f'<div class="flip-card">'
-                    f'<span class="card-topic-pill">{th}</span>'
+                    f'<span class="card-topic-pill" style="background:#EDE8E3;color:#6B6760">Practice question · {th}</span>'
                     f'<p class="card-q-label">Question</p>'
-                    f'<p class="card-question-ghost">{fh}</p>'
-                    f'<div class="card-divider"></div>'
-                    f'<p class="card-q-label">Answer</p>'
-                    f'<p class="card-answer">{bh}</p>'
+                    f'<p class="card-question">{qh}</p>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-                st.markdown('<p class="rating-hint">How well did you know this?</p>', unsafe_allow_html=True)
 
-                def _rate(r):
+                if not answered:
+                    for opt in opts:
+                        if st.button(opt, key=f"opt_{idx}_{opt}", use_container_width=True):
+                            st.session_state.quiz_selected = opt
+                            st.session_state.quiz_answered = True
+                            st.rerun()
+                else:
+                    correct_letter = item.get("correct","A")
+                    correct_opt    = next((o for o in opts if o.startswith(correct_letter)), "")
+                    is_correct     = (selected or "").startswith(correct_letter)
+                    xp             = XP_CORRECT if is_correct else XP_ATTEMPT
+
+                    # Record attempt
                     prog = st.session_state.progress
-                    prog = record_review(prog, card["id"], r)
-                    xp   = XP_FOR_RATING.get(r, 0)
+                    prog = record_quiz_attempt(prog, item["id"], is_correct)
                     prog = add_xp(prog, xp)
                     st.session_state.progress = prog
-                    save_progress(prog)
-                    if r >= 3: st.session_state.flash_correct += 1
-                    st.session_state.session_xp      += xp
-                    st.session_state.session_ratings.append(r)
-                    st.session_state.flash_idx        += 1
-                    st.session_state.flash_flipped     = False
-                    st.rerun()
 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    if st.button("Again\nForgot it",   use_container_width=True, help="Forgot — shows again soon"): _rate(1)
-                with c2:
-                    if st.button("Hard\nStruggled",    use_container_width=True, help="Got it but struggled"):      _rate(2)
-                with c3:
-                    if st.button("Good\nKnew it",      use_container_width=True, help="Knew it well"):              _rate(3)
-                with c4:
-                    if st.button("Easy\nToo easy",     use_container_width=True, help="Way too easy"):              _rate(4)
+                    for opt in opts:
+                        is_sel = opt == selected
+                        is_cor = opt == correct_opt
+                        if is_cor:
+                            st.success(f"✓ {opt}")
+                        elif is_sel and not is_cor:
+                            st.error(f"✗ {opt}")
+                        else:
+                            st.markdown(f"&nbsp;&nbsp;{opt}")
 
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("End session", key="end_sess", type="secondary"):
-                    st.session_state.flash_queue   = []
-                    st.session_state.flash_idx     = 0
-                    st.session_state.flash_flipped = False
-                    st.rerun()
+                    if is_correct:
+                        st.markdown(f'<p style="color:#B87C65;font-weight:600;margin:8px 0 4px">+{xp} XP — Correct!</p>', unsafe_allow_html=True)
+                        st.session_state.session_quiz_correct += 1
+                    else:
+                        st.markdown(f'<p style="color:#8C8881;font-weight:600;margin:8px 0 4px">+{xp} XP — Not quite.</p>', unsafe_allow_html=True)
+
+                    st.caption(f"Explanation: {item.get('explanation','')}")
+                    st.session_state.session_xp         += xp
+                    st.session_state.session_quiz_total += 1
+
+                    col = st.columns([1,2,1])[1]
+                    with col:
+                        if st.button("Next", use_container_width=True, type="primary", key=f"qnext_{idx}"):
+                            save_progress(st.session_state.progress)
+                            st.session_state.flash_idx    += 1
+                            st.session_state.quiz_selected = None
+                            st.session_state.quiz_answered = False
+                            st.rerun()
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("End session", key="end_sess", type="secondary"):
+                save_progress(st.session_state.progress)
+                st.session_state.flash_queue   = []
+                st.session_state.flash_idx     = 0
+                st.session_state.flash_flipped = False
+                st.session_state.quiz_selected = None
+                st.session_state.quiz_answered = False
+                st.rerun()
 
 
 # ════════════════════════════════════════════ PROGRESS ═══════════════════════
