@@ -141,7 +141,7 @@ Start with [ and end with ]. Nothing else."""
 
     resp = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -152,7 +152,19 @@ Start with [ and end with ]. Nothing else."""
             raw = raw[4:]
     raw = raw.strip().rstrip("```").strip()
 
-    cards = json.loads(raw)
+    # Attempt to parse; if truncated, recover all complete cards
+    try:
+        cards = json.loads(raw)
+    except json.JSONDecodeError:
+        # Find the last complete card object by trimming to the last "},{"
+        last_close = raw.rfind("},")
+        if last_close == -1:
+            last_close = raw.rfind("}")
+        if last_close != -1:
+            raw = raw[: last_close + 1] + "\n]"
+            cards = json.loads(raw)
+        else:
+            raise
 
     # De-duplicate IDs
     seen: dict = {}
