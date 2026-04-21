@@ -179,6 +179,79 @@ def get_all_topic_stats(progress: dict, all_cards: list) -> list:
     return list(reversed(get_weak_spots(progress, all_cards)))
 
 
+# ---------------------------------------------------------------------------
+# XP & Gamification
+# ---------------------------------------------------------------------------
+
+DAILY_GOAL_XP = 200
+
+XP_FOR_RATING: dict = {1: 0, 2: 10, 3: 25, 4: 40}
+
+ACHIEVEMENTS: dict = {
+    "first_card":      {"name": "First Step",    "desc": "Reviewed your first card"},
+    "streak_3":        {"name": "On a Roll",      "desc": "3-day study streak"},
+    "streak_7":        {"name": "Locked In",      "desc": "7-day study streak"},
+    "streak_14":       {"name": "Unstoppable",    "desc": "14-day study streak"},
+    "daily_goal":      {"name": "Daily Goal",     "desc": "Hit 200 XP in a single day"},
+    "perfect_session": {"name": "Clean Sweep",    "desc": "All Good or Easy in a session (5+ cards)"},
+    "cards_25":        {"name": "Warming Up",     "desc": "Reviewed 25 cards total"},
+    "cards_100":       {"name": "Card Shark",     "desc": "Reviewed 100 cards total"},
+    "cards_250":       {"name": "Audit Ready",    "desc": "Reviewed 250 cards total"},
+}
+
+
+def get_xp_today(progress: dict) -> int:
+    """Return XP earned today."""
+    today = date.today().isoformat()
+    return progress.get("xp_by_day", {}).get(today, 0)
+
+
+def add_xp(progress: dict, xp: int) -> dict:
+    """Add XP to today's total and lifetime total."""
+    today = date.today().isoformat()
+    if "xp_by_day" not in progress:
+        progress["xp_by_day"] = {}
+    progress["xp_by_day"][today] = progress["xp_by_day"].get(today, 0) + xp
+    progress["xp_total"] = progress.get("xp_total", 0) + xp
+    return progress
+
+
+def check_new_achievements(progress: dict, session_ratings: list | None = None) -> list:
+    """
+    Check for newly earned achievements. Returns list of new achievement IDs.
+    Updates progress["achievements"] in place if new ones were earned.
+    """
+    earned = set(progress.get("achievements", []))
+    new: list = []
+
+    def earn(aid: str) -> None:
+        if aid not in earned:
+            new.append(aid)
+            earned.add(aid)
+
+    total = progress.get("total_reviews", 0)
+    if total >= 1:   earn("first_card")
+    if total >= 25:  earn("cards_25")
+    if total >= 100: earn("cards_100")
+    if total >= 250: earn("cards_250")
+
+    streak = progress.get("streak", 0)
+    if streak >= 3:  earn("streak_3")
+    if streak >= 7:  earn("streak_7")
+    if streak >= 14: earn("streak_14")
+
+    if get_xp_today(progress) >= DAILY_GOAL_XP:
+        earn("daily_goal")
+
+    if session_ratings and len(session_ratings) >= 5:
+        if all(r >= 3 for r in session_ratings):
+            earn("perfect_session")
+
+    if new:
+        progress["achievements"] = list(earned)
+    return new
+
+
 def streak_calendar(progress: dict, days: int = 7) -> list[dict]:
     """
     Return last N days as list of {date, studied} dicts for the calendar strip.

@@ -16,7 +16,9 @@ import streamlit as st
 
 from agent import generate_summary, generate_study_plan, generate_practice_questions
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
-from progress import load_progress, save_progress, record_review, get_today_stats, get_weak_spots, streak_calendar
+from progress import (load_progress, save_progress, record_review, get_today_stats,
+                      get_weak_spots, streak_calendar, add_xp, get_xp_today,
+                      check_new_achievements, DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS)
 from schedule import get_weighted_topics
 
 # ─── Page config ──────────────────────────────────────────────────────────────
@@ -214,6 +216,42 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .stButton > button[kind="secondary"]:hover {
     border-color: #B87C65 !important; color: #B87C65 !important;
 }
+
+/* ── Goal bar ── */
+.goal-wrap { margin: 0 0 22px; }
+.goal-row { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+.goal-label { font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase; color:#B0ADA6; font-weight:500; }
+.goal-value { font-size:0.72rem; font-weight:600; color:#B87C65; }
+.goal-track { background:#E8E4DC; border-radius:99px; height:5px; }
+.goal-fill  { background:linear-gradient(90deg,#B87C65,#D4956A); border-radius:99px; height:5px; }
+
+/* ── Achievements ── */
+.ach-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0 20px; }
+.ach-card { background:#FFFFFF; border:1px solid #E8E4DC; border-radius:14px; padding:14px 16px; }
+.ach-card.earned { border-color:#B87C65; background:#FDF9F7; }
+.ach-card.locked { opacity:0.5; }
+.ach-name { font-size:0.82rem; font-weight:600; color:#1E1D1A; margin:0 0 3px; }
+.ach-desc { font-size:0.72rem; color:#8C8881; margin:0; }
+
+/* ── Session complete XP banner ── */
+.xp-banner {
+    background:#FDF3EE; border:1px solid #F0D9CE; border-radius:18px;
+    padding:24px; text-align:center; margin-bottom:16px;
+}
+.xp-number {
+    font-family:'DM Serif Display',serif; font-size:2.8rem; color:#B87C65;
+    line-height:1; margin:0 0 6px;
+}
+.xp-sub { font-size:0.82rem; color:#8C8881; margin:0; }
+
+/* ── New achievement pop ── */
+.new-ach-card {
+    background:#FDF3EE; border:1.5px solid #B87C65; border-radius:14px;
+    padding:14px 18px; margin-bottom:10px;
+}
+.new-ach-label { font-size:0.65rem; letter-spacing:0.12em; text-transform:uppercase; color:#B87C65; font-weight:600; margin:0 0 2px; }
+.new-ach-name  { font-size:0.9rem; font-weight:700; color:#1E1D1A; margin:0 0 2px; }
+.new-ach-desc  { font-size:0.75rem; color:#5C5A54; margin:0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -222,8 +260,8 @@ for k, v in {
     "materials":{}, "cache_date":None, "progress":None,
     "flash_queue":[], "flash_idx":0, "flash_flipped":False, "flash_correct":0,
     "flash_generating":False, "flash_gen_error":None,
+    "session_xp":0, "session_ratings":[], "new_achievements":[],
     "last_summary":None, "last_plan":None,
-    "last_questions":None, "quiz_answers":{}, "quiz_submitted":False, "quiz_error":None,
     "api_key":"",
 }.items():
     if k not in st.session_state: st.session_state[k] = v
@@ -257,6 +295,21 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
+# ─── Daily goal bar (always visible) ──────────────────────────────────────────
+def _goal_bar(progress):
+    xp    = get_xp_today(progress)
+    pct   = min(100, int(xp / DAILY_GOAL_XP * 100))
+    label = "Goal reached!" if xp >= DAILY_GOAL_XP else f"{xp} / {DAILY_GOAL_XP} XP today"
+    return (
+        f'<div class="goal-wrap">'
+        f'<div class="goal-row"><span class="goal-label">Daily goal</span>'
+        f'<span class="goal-value">{label}</span></div>'
+        f'<div class="goal-track"><div class="goal-fill" style="width:{pct}%"></div></div>'
+        f'</div>'
+    )
+
+st.markdown(_goal_bar(st.session_state.progress), unsafe_allow_html=True)
 
 # ─── API key — soft notice only (flashcards work without it) ───────────────────
 # No hard gate. API key is only required for AI Tools tab features.
@@ -337,14 +390,14 @@ with st.sidebar:
     st.caption("Materials auto-refresh from Box after each Tue/Thu class.")
     st.divider()
     st.divider()
-    st.caption("API key — needed for AI Tools & flashcard regeneration only.")
+    st.caption("API key — needed for AI tools & flashcard regeneration only.")
     key_input = st.text_input("Anthropic API key", type="password", placeholder="sk-ant-…", value=api_key or "")
     if key_input and key_input != api_key:
         st.session_state.api_key = key_input
         api_key = key_input
         st.rerun()
     if api_key:
-        st.success("Key saved", icon="✓")
+        st.success("Key saved")
     st.divider()
     if st.button("Regenerate flashcards"):
         if not api_key:
@@ -364,6 +417,33 @@ with st.sidebar:
                     st.success(f"{len(cards)} cards ready")
                     st.rerun()
                 except Exception as e: st.error(str(e))
+
+    st.divider()
+    with st.expander("AI Tools"):
+        if not mats:
+            st.caption("Materials will auto-sync after class.")
+        elif not api_key:
+            st.caption("Enter API key above to use AI tools.")
+        else:
+            tool = st.radio("", ["Summary", "Study Plan"], horizontal=True, label_visibility="collapsed")
+            if tool == "Summary":
+                if st.button("Generate summary", type="primary", key="sb_sum"):
+                    with st.spinner("Summarizing…"):
+                        notes_only = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
+                        st.session_state.last_summary = generate_summary(api_key, _text(notes_only or mats))
+                if st.session_state.last_summary:
+                    st.markdown(st.session_state.last_summary)
+                    st.download_button("Download", st.session_state.last_summary, f"summary_{date.today()}.md", "text/markdown")
+            else:
+                nc   = st.date_input("Next class", value=date.today(), key="sb_nc")
+                exam = st.date_input("Exam date", key="sb_exam")
+                hrs  = st.slider("Hours/day", 0.5, 4.0, 1.5, 0.5, key="sb_hrs")
+                if st.button("Generate study plan", type="primary", key="sb_plan"):
+                    with st.spinner("Building plan…"):
+                        st.session_state.last_plan = generate_study_plan(api_key, _text(mats), str(nc), str(exam), hrs, "")
+                if st.session_state.last_plan:
+                    st.markdown(st.session_state.last_plan)
+                    st.download_button("Download", st.session_state.last_plan, f"plan_{date.today()}.md", "text/markdown")
 
 # ─── Auto-generate flashcards in background on load ───────────────────────────
 mats = st.session_state.materials
@@ -385,7 +465,7 @@ if st.session_state.flash_generating:
         os.remove(_err_path)
 
 # ─── Tabs ──────────────────────────────────────────────────────────────────────
-tab_flash, tab_quiz, tab_progress, tab_ai = st.tabs(["Flashcards", "Practice", "Progress", "AI Tools"])
+tab_flash, tab_progress = st.tabs(["Study", "Progress"])
 mats = st.session_state.materials
 
 # ════════════════════════════════════════════ FLASHCARDS ═════════════════════
@@ -459,10 +539,12 @@ with tab_flash:
             with col:
                 if st.button("Begin session", use_container_width=True, type="primary"):
                     q = get_due_cards(all_cards, progress)
-                    st.session_state.flash_queue  = q
-                    st.session_state.flash_idx    = 0
-                    st.session_state.flash_flipped = False
-                    st.session_state.flash_correct = 0
+                    st.session_state.flash_queue     = q
+                    st.session_state.flash_idx       = 0
+                    st.session_state.flash_flipped   = False
+                    st.session_state.flash_correct   = 0
+                    st.session_state.session_xp      = 0
+                    st.session_state.session_ratings = []
                     st.rerun()
         else:
             st.markdown(
@@ -482,28 +564,71 @@ with tab_flash:
 
         # Session complete
         if idx >= len(queue):
-            correct = st.session_state.flash_correct
-            total   = len(queue)
-            pct     = int(correct / total * 100) if total else 0
-            msg     = "Cards scheduled — SM-2 will surface each one at exactly the right time." if pct >= 80 else "Missed cards will come back soon. Every session builds retention."
+            # Check for new achievements
+            prog = st.session_state.progress
+            new_ach = check_new_achievements(prog, st.session_state.session_ratings)
+            if new_ach:
+                prog["achievements"] = list(set(prog.get("achievements", [])) | set(new_ach))
+                st.session_state.progress = prog
+                save_progress(prog)
+
+            sess_xp  = st.session_state.session_xp
+            xp_today = get_xp_today(prog)
+            goal_hit = xp_today >= DAILY_GOAL_XP
+
+            # XP banner
             st.markdown(
-                f'<div class="hero-card">'
-                f'<div class="hero-rule"></div>'
-                f'<p class="hero-eyebrow">Session complete</p>'
-                f'<h2 class="hero-title">{pct}% accuracy</h2>'
-                f'<p class="hero-body">{correct} of {total} correct.<br>{msg}</p>'
-                f'<div class="chip-row">'
-                f'<span class="chip chip-sage">Streak: {get_today_stats(progress)["streak"]} days</span>'
-                f'<span class="chip chip-neutral">{correct} / {total} correct</span>'
-                f'</div>'
+                f'<div class="xp-banner">'
+                f'<div class="xp-number">+{sess_xp}</div>'
+                f'<p class="xp-sub">XP earned this session</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+            # Goal reached callout
+            if goal_hit:
+                st.markdown(
+                    '<div class="caught-card" style="margin-bottom:12px">'
+                    '<p class="caught-eyebrow">Daily goal</p>'
+                    '<h2 class="caught-title" style="font-size:1.3rem">Goal reached!</h2>'
+                    f'<p class="caught-body">{xp_today} XP today — you\'re done for the day. See you tomorrow.</p>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # New achievements
+            if new_ach:
+                st.markdown('<p class="section-label">New achievements</p>', unsafe_allow_html=True)
+                for aid in new_ach:
+                    a = ACHIEVEMENTS.get(aid, {})
+                    st.markdown(
+                        f'<div class="new-ach-card">'
+                        f'<p class="new-ach-label">Achievement unlocked</p>'
+                        f'<p class="new-ach-name">{a.get("name","")}</p>'
+                        f'<p class="new-ach-desc">{a.get("desc","")}</p>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            # Stats chips
+            correct = st.session_state.flash_correct
+            total   = len(queue)
+            pct     = int(correct / total * 100) if total else 0
+            st.markdown(
+                f'<div class="chip-row" style="margin-bottom:20px">'
+                f'<span class="chip chip-sage">Streak: {get_today_stats(prog)["streak"]} days</span>'
+                f'<span class="chip chip-neutral">{correct}/{total} correct · {pct}%</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
             col = st.columns([1,2,1])[1]
             with col:
                 if st.button("Back to dashboard", use_container_width=True, type="primary"):
-                    st.session_state.flash_queue = []
-                    st.session_state.flash_idx   = 0
+                    st.session_state.flash_queue    = []
+                    st.session_state.flash_idx      = 0
+                    st.session_state.session_xp     = 0
+                    st.session_state.session_ratings = []
                     st.rerun()
 
         # Active card
@@ -555,11 +680,15 @@ with tab_flash:
                 def _rate(r):
                     prog = st.session_state.progress
                     prog = record_review(prog, card["id"], r)
+                    xp   = XP_FOR_RATING.get(r, 0)
+                    prog = add_xp(prog, xp)
                     st.session_state.progress = prog
                     save_progress(prog)
                     if r >= 3: st.session_state.flash_correct += 1
-                    st.session_state.flash_idx    += 1
-                    st.session_state.flash_flipped = False
+                    st.session_state.session_xp      += xp
+                    st.session_state.session_ratings.append(r)
+                    st.session_state.flash_idx        += 1
+                    st.session_state.flash_flipped     = False
                     st.rerun()
 
                 c1, c2, c3, c4 = st.columns(4)
@@ -697,6 +826,20 @@ with tab_progress:
     st.markdown('<p class="section-label">Last 7 days</p>', unsafe_allow_html=True)
     st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
 
+    # Achievements
+    st.markdown('<p class="section-label">Achievements</p>', unsafe_allow_html=True)
+    earned_set = set(progress.get("achievements", []))
+    cards_html = ""
+    for aid, a in ACHIEVEMENTS.items():
+        cls = "earned" if aid in earned_set else "locked"
+        cards_html += (
+            f'<div class="ach-card {cls}">'
+            f'<p class="ach-name">{a["name"]}</p>'
+            f'<p class="ach-desc">{a["desc"]}</p>'
+            f'</div>'
+        )
+    st.markdown(f'<div class="ach-grid">{cards_html}</div>', unsafe_allow_html=True)
+
     # Weak spots
     if all_cards:
         weak = get_weak_spots(progress, all_cards)
@@ -716,53 +859,12 @@ with tab_progress:
         else:
             st.info("Study at least 3 cards per topic to see accuracy data here.")
     else:
-        st.info("Generate flashcards on the Flashcards tab to start tracking progress.")
+        st.info("Generate flashcards to start tracking progress.")
 
     with st.expander("Reset all progress"):
-        st.warning("Clears all streaks and review history. Cannot be undone.")
+        st.warning("Clears all streaks, XP, and review history. Cannot be undone.")
         if st.button("Reset progress", type="secondary"):
             from progress import _DEFAULTS
             st.session_state.progress = _DEFAULTS.copy()
             save_progress(st.session_state.progress)
             st.rerun()
-
-# ════════════════════════════════════════════ AI TOOLS ═══════════════════════
-with tab_ai:
-    if not mats:
-        st.markdown(
-            '<div class="hero-card">'
-            '<p class="hero-eyebrow">AI tools</p>'
-            '<h2 class="hero-title">No materials loaded</h2>'
-            '<p class="hero-body">Your Box course materials will auto-sync after each Tuesday and Thursday class. Once loaded, you can generate summaries and custom study plans here.</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        tool = st.radio("", ["Summary", "Study Plan"], horizontal=True, label_visibility="collapsed")
-
-        if not api_key:
-            st.info("Add your Anthropic API key in the sidebar to use AI tools.")
-        elif tool == "Summary":
-            st.markdown('<p class="section-label">Exam-ready summary from your materials</p>', unsafe_allow_html=True)
-            sel = st.multiselect("Files to include", list(mats.keys()), default=list(mats.keys()))
-            if st.button("Generate summary", type="primary"):
-                with st.spinner("Summarizing…"):
-                    st.session_state.last_summary = generate_summary(api_key, _text({k:mats[k] for k in sel}))
-            if st.session_state.last_summary:
-                st.markdown(st.session_state.last_summary)
-                st.download_button("Download", st.session_state.last_summary, f"summary_{date.today()}.md", "text/markdown")
-        else:
-            st.markdown('<p class="section-label">Personalized schedule using spaced repetition and active recall</p>', unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            with c1:
-                nc   = st.date_input("Next class", value=date.today())
-                exam = st.date_input("Exam date")
-                hrs  = st.slider("Study hours per day", 0.5, 4.0, 1.5, 0.5)
-            with c2:
-                focus = st.text_area("Topics to prioritize (optional)", height=120, placeholder="e.g. sampling, ethics")
-            if st.button("Generate study plan", type="primary"):
-                with st.spinner("Building your plan…"):
-                    st.session_state.last_plan = generate_study_plan(api_key, _text(mats), str(nc), str(exam), hrs, focus)
-            if st.session_state.last_plan:
-                st.markdown(st.session_state.last_plan)
-                st.download_button("Download", st.session_state.last_plan, f"plan_{date.today()}.md", "text/markdown")
