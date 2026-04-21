@@ -14,10 +14,9 @@ from datetime import date
 
 import streamlit as st
 
-from agent import generate_summary, generate_study_plan
+from agent import generate_summary, generate_study_plan, generate_practice_questions
 from quiz import (load_questions, get_weighted_questions,
-                  build_interleaved_queue, record_quiz_attempt,
-                  XP_CORRECT, XP_ATTEMPT)
+                  record_quiz_attempt, XP_CORRECT, XP_ATTEMPT)
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
 from progress import (load_progress, save_progress, record_review, get_today_stats,
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
@@ -264,6 +263,11 @@ for k, v in {
     "flash_queue":[], "flash_idx":0, "flash_flipped":False, "flash_correct":0,
     "flash_generating":False, "flash_gen_error":None,
     "session_xp":0, "session_ratings":[], "new_achievements":[],
+    # Practice session state
+    "practice_queue":[], "practice_idx":0,
+    "practice_selected":None, "practice_answered":False,
+    "practice_correct":0, "practice_generating":False,
+    # Legacy quiz tracking (kept for backward compat)
     "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
     "api_key":"",
@@ -469,10 +473,227 @@ if st.session_state.flash_generating:
         os.remove(_err_path)
 
 # ─── Tabs ──────────────────────────────────────────────────────────────────────
-tab_flash, tab_progress = st.tabs(["Study", "Progress"])
+tab_practice, tab_flash, tab_progress = st.tabs(["Practice", "Review", "Progress"])
 mats = st.session_state.materials
 
-# ════════════════════════════════════════════ FLASHCARDS ═════════════════════
+# ════════════════════════════════════════════ PRACTICE (PRIMARY) ═════════════
+with tab_practice:
+    progress  = st.session_state.progress
+    all_cards = load_flashcards()
+
+    # ── Helper: generate questions for a session ──────────────────────────────
+    def _build_practice_questions():
+        """Generate 10 fresh MC questions from course materials, algorithm-weighted."""
+        from schedule import get_weighted_topics_with_performance
+        algo     = get_weighted_topics_with_performance(progress, all_cards, num_questions=10)
+        notes    = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
+        quizzes  = {k:v for k,v in mats.items() if v.get("type") == "quiz"}
+        notes_t  = _text(notes or mats)
+        quiz_t   = _text(quizzes)
+        raw_qs   = generate_practice_questions(
+            api_key=api_key,
+            notes_text=notes_t,
+            quiz_examples=quiz_t,
+            num_questions=10,
+            question_types=["Multiple Choice"],
+            difficulty="Mixed",
+            topic_plan=algo["topic_plan"],
+        )
+        # Normalise to questions_cache schema (add id, topic, class_num)
+        out = []
+        for i, q in enumerate(raw_qs):
+            q.setdefault("id", f"live-{date.today().isoformat()}-{i}")
+            q.setdefault("topic", "Auditing")
+            q.setdefault("class_num", 0)
+            # map options list to A/B/C/D if not already
+            if q.get("options") and not q["options"][0].startswith("A"):
+                labels = ["A","B","C","D"]
+                q["options"] = [f"{labels[j]}. {o}" for j,o in enumerate(q["options"][:4])]
+            out.append(q)
+        return out
+
+    # ── No active session — dashboard ────────────────────────────────────────
+    if not st.session_state.practice_queue:
+        from schedule import get_weighted_topics_with_performance
+        algo  = get_weighted_topics_with_performance(progress, all_cards, num_questions=10)
+        focus = algo.get("focus_summary","")
+        stats = get_today_stats(progress)
+
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["streak"]}</div><div class="stat-label">Day streak</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["cards_today"]}</div><div class="stat-label">Today</div></div>', unsafe_allow_html=True)
+        xp_t = get_xp_today(progress)
+        c3.markdown(f'<div class="stat-tile"><div class="stat-value">{xp_t}</div><div class="stat-label">XP today</div></div>', unsafe_allow_html=True)
+
+        st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
+
+        focus_html = f"<br><span style='font-size:0.78rem;color:#8C8881'>Algorithm focus: {focus}</span>" if focus else ""
+        st.markdown(
+            f'<div class="hero-card" style="margin-top:12px">'
+            f'<p class="hero-eyebrow">Retrieval practice</p>'
+            f'<h2 class="hero-title">10 practice questions</h2>'
+            f'<p class="hero-body">Prof. Morrison-style questions generated from your course materials. '
+            f'Topics weighted by what you studied recently and what you know least well.{focus_html}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        col = st.columns([1,2,1])[1]
+        with col:
+            if not api_key:
+                st.warning("Add your Anthropic API key in the sidebar to generate practice questions.")
+            else:
+                if st.button("Start practice", use_container_width=True, type="primary"):
+                    with st.spinner("Generating questions from your course materials…"):
+                        try:
+                            qs = _build_practice_questions()
+                            st.session_state.practice_queue    = qs
+                            st.session_state.practice_idx      = 0
+                            st.session_state.practice_selected = None
+                            st.session_state.practice_answered = False
+                            st.session_state.practice_correct  = 0
+                            st.session_state.session_xp        = 0
+                            st.session_state.session_ratings   = []
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not generate questions: {e}")
+
+    # ── Session complete ──────────────────────────────────────────────────────
+    elif st.session_state.practice_idx >= len(st.session_state.practice_queue):
+        prog    = st.session_state.progress
+        new_ach = check_new_achievements(prog, st.session_state.session_ratings)
+        if new_ach:
+            prog["achievements"] = list(set(prog.get("achievements",[]))|set(new_ach))
+            st.session_state.progress = prog
+            save_progress(prog)
+
+        sess_xp = st.session_state.session_xp
+        qc      = st.session_state.practice_correct
+        qt      = len(st.session_state.practice_queue)
+        qpct    = int(qc/qt*100) if qt else 0
+
+        st.markdown(
+            f'<div class="xp-banner"><div class="xp-number">+{sess_xp}</div>'
+            f'<p class="xp-sub">XP earned this session</p></div>',
+            unsafe_allow_html=True,
+        )
+
+        if get_xp_today(prog) >= DAILY_GOAL_XP:
+            st.markdown('<div class="caught-card" style="margin-bottom:12px">'
+                        '<p class="caught-eyebrow">Daily goal</p>'
+                        '<h2 class="caught-title" style="font-size:1.3rem">Goal reached!</h2>'
+                        f'<p class="caught-body">{get_xp_today(prog)} XP today.</p></div>',
+                        unsafe_allow_html=True)
+
+        for aid in new_ach:
+            a = ACHIEVEMENTS.get(aid,{})
+            st.markdown(f'<div class="new-ach-card"><p class="new-ach-label">Achievement unlocked</p>'
+                        f'<p class="new-ach-name">{a.get("name","")}</p>'
+                        f'<p class="new-ach-desc">{a.get("desc","")}</p></div>', unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div class="chip-row" style="margin-bottom:20px">'
+            f'<span class="chip chip-sage">Streak: {get_today_stats(prog)["streak"]} days</span>'
+            f'<span class="chip chip-neutral">{qc}/{qt} correct · {qpct}%</span>'
+            f'</div>', unsafe_allow_html=True,
+        )
+
+        col = st.columns([1,2,1])[1]
+        with col:
+            if st.button("Practice again", use_container_width=True, type="primary"):
+                st.session_state.practice_queue    = []
+                st.session_state.practice_idx      = 0
+                st.session_state.session_xp        = 0
+                st.session_state.session_ratings   = []
+                st.rerun()
+
+    # ── Active question ───────────────────────────────────────────────────────
+    else:
+        queue = st.session_state.practice_queue
+        idx   = st.session_state.practice_idx
+        item  = queue[idx]
+        pct   = idx / len(queue) * 100
+
+        st.markdown(
+            f'<div class="progress-row">'
+            f'<span class="progress-count">Question {idx+1} of {len(queue)}</span>'
+            f'<span class="progress-count">{int(pct)}%</span>'
+            f'</div>'
+            f'<div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>',
+            unsafe_allow_html=True,
+        )
+
+        qh = _html.escape(item.get("question",""))
+        th = _html.escape(item.get("topic",""))
+        st.markdown(
+            f'<div class="flip-card">'
+            f'<span class="card-topic-pill">{th}</span>'
+            f'<p class="card-q-label">Question</p>'
+            f'<p class="card-question">{qh}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        opts     = item.get("options",[])
+        answered = st.session_state.practice_answered
+        selected = st.session_state.practice_selected
+
+        if not answered:
+            for opt in opts:
+                if st.button(opt, key=f"p_opt_{idx}_{opt}", use_container_width=True):
+                    st.session_state.practice_selected = opt
+                    st.session_state.practice_answered = True
+                    st.rerun()
+        else:
+            correct_letter = item.get("correct","A")
+            correct_opt    = next((o for o in opts if o.startswith(correct_letter+".") or o.startswith(correct_letter+" ")), "")
+            is_correct     = bool(selected) and (selected.startswith(correct_letter+".") or selected.startswith(correct_letter+" "))
+            xp             = XP_CORRECT if is_correct else XP_ATTEMPT
+
+            # Record
+            prog = st.session_state.progress
+            prog = record_quiz_attempt(prog, item["id"], is_correct)
+            prog = add_xp(prog, xp)
+            st.session_state.progress = prog
+
+            for opt in opts:
+                is_cor = opt == correct_opt
+                is_sel = opt == selected
+                if is_cor:
+                    st.success(f"✓  {opt}")
+                elif is_sel:
+                    st.error(f"✗  {opt}")
+                else:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;{opt}")
+
+            xp_label = f"+{xp} XP — Correct!" if is_correct else f"+{xp} XP — Not quite."
+            color    = "#B87C65" if is_correct else "#8C8881"
+            st.markdown(f'<p style="color:{color};font-weight:600;margin:8px 0 4px">{xp_label}</p>', unsafe_allow_html=True)
+            st.caption(f"Explanation: {item.get('explanation','')}")
+
+            if is_correct:
+                st.session_state.practice_correct += 1
+            st.session_state.session_xp         += xp
+            st.session_state.session_ratings.append(3 if is_correct else 1)
+
+            col = st.columns([1,2,1])[1]
+            with col:
+                if st.button("Next question", use_container_width=True, type="primary", key=f"p_next_{idx}"):
+                    save_progress(st.session_state.progress)
+                    st.session_state.practice_idx      += 1
+                    st.session_state.practice_selected  = None
+                    st.session_state.practice_answered  = False
+                    st.rerun()
+
+        if st.button("End session", key="p_end", type="secondary"):
+            save_progress(st.session_state.progress)
+            st.session_state.practice_queue    = []
+            st.session_state.practice_idx      = 0
+            st.session_state.practice_selected = None
+            st.session_state.practice_answered = False
+            st.rerun()
+
+# ════════════════════════════════════════════ REVIEW (FLASHCARDS) ════════════
 with tab_flash:
     progress  = st.session_state.progress
     all_cards = load_flashcards()
@@ -516,66 +737,36 @@ with tab_flash:
 
     # ── Dashboard — cards exist, no active session ────────────────────────────
     elif not st.session_state.flash_queue:
-        stats      = get_today_stats(progress)
         counts     = count_due(all_cards, progress)
         card_total = counts["due"] + counts["new"]
-        all_qs     = load_questions()
 
-        # Algorithm: combined recency × performance weighting
-        from schedule import get_weighted_topics_with_performance
-        algo = get_weighted_topics_with_performance(progress, all_cards, num_questions=5)
-        focus = algo.get("focus_summary", "")
-
-        # Stat row
-        c1, c2, c3 = st.columns(3)
-        c1.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["streak"]}</div><div class="stat-label">Day streak</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="stat-tile"><div class="stat-value">{stats["cards_today"]}</div><div class="stat-label">Today</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="stat-tile"><div class="stat-value">{card_total}</div><div class="stat-label">Due</div></div>', unsafe_allow_html=True)
-
-        # Streak calendar
-        st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
-
-        n_quiz = min(5, len(all_qs)) if all_qs else 0
-
-        if card_total > 0 or n_quiz > 0:
-            body = f"{counts['due']} reviews · {counts['new']} new cards"
-            if n_quiz:
-                body += f" · {n_quiz} practice questions"
-            if focus:
-                body += f"<br><br><span style='font-size:0.8rem;color:#8C8881'>Algorithm focus: {focus}</span>"
-            hero_title = "Today's session" if card_total > 0 else "Practice questions"
+        if card_total > 0:
             st.markdown(
                 f'<div class="hero-card" style="margin-top:12px">'
-                f'<p class="hero-eyebrow">Ready to study</p>'
-                f'<h2 class="hero-title">{hero_title}</h2>'
-                f'<p class="hero-body">{body}</p>'
+                f'<p class="hero-eyebrow">Spaced repetition review</p>'
+                f'<h2 class="hero-title">{card_total} cards due</h2>'
+                f'<p class="hero-body">{counts["due"]} scheduled reviews · {counts["new"]} new cards.<br>'
+                f'SM-2 algorithm schedules each card at the optimal moment for long-term retention.</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
             col = st.columns([1,2,1])[1]
             with col:
-                if st.button("Begin session", use_container_width=True, type="primary"):
-                    cards_q  = get_due_cards(all_cards, progress)
-                    quiz_q   = get_weighted_questions(all_qs, progress, all_cards, n=n_quiz)
-                    from quiz import build_interleaved_queue
-                    mixed    = build_interleaved_queue(cards_q, quiz_q, ratio=3)
-                    st.session_state.flash_queue         = mixed
-                    st.session_state.flash_idx           = 0
-                    st.session_state.flash_flipped       = False
-                    st.session_state.flash_correct       = 0
-                    st.session_state.session_xp          = 0
-                    st.session_state.session_ratings     = []
-                    st.session_state.quiz_selected       = None
-                    st.session_state.quiz_answered       = False
-                    st.session_state.session_quiz_correct = 0
-                    st.session_state.session_quiz_total  = 0
+                if st.button("Start review", use_container_width=True, type="primary"):
+                    q = get_due_cards(all_cards, progress)
+                    st.session_state.flash_queue     = [dict(c, type="card") for c in q]
+                    st.session_state.flash_idx       = 0
+                    st.session_state.flash_flipped   = False
+                    st.session_state.flash_correct   = 0
+                    st.session_state.session_xp      = 0
+                    st.session_state.session_ratings = []
                     st.rerun()
         else:
             st.markdown(
                 '<div class="caught-card">'
                 '<p class="caught-eyebrow">All caught up</p>'
-                '<h2 class="caught-title">Nothing due today</h2>'
-                '<p class="caught-body">Your spaced repetition schedule is clear. Check back tomorrow — consistency compounds.</p>'
+                '<h2 class="caught-title">No cards due</h2>'
+                '<p class="caught-body">SM-2 schedule is clear. Use Practice for more retrieval practice.</p>'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -659,155 +850,81 @@ with tab_flash:
                     st.session_state.session_quiz_total  = 0
                     st.rerun()
 
-        # Active item (card or quiz question)
+        # Active flashcard
         else:
-            item = queue[idx]
+            card = queue[idx]
             pct  = idx / len(queue) * 100
-            item_type = item.get("type", "card")
+            fh   = _html.escape(card.get("front",""))
+            bh   = _html.escape(card.get("back",""))
+            th   = _html.escape(card.get("topic",""))
 
-            # Progress bar
-            total_cards = sum(1 for x in queue if x.get("type","card") == "card")
-            total_quiz  = sum(1 for x in queue if x.get("type") == "quiz")
-            label_str   = f"{'Card' if item_type=='card' else 'Question'} {idx+1} of {len(queue)}"
             st.markdown(
                 f'<div class="progress-row">'
-                f'<span class="progress-count">{label_str}</span>'
+                f'<span class="progress-count">Card {idx+1} of {len(queue)}</span>'
                 f'<span class="progress-count">{int(pct)}%</span>'
                 f'</div>'
                 f'<div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>',
                 unsafe_allow_html=True,
             )
 
-            # ── Flashcard ──────────────────────────────────────────────────
-            if item_type == "card":
-                fh = _html.escape(item.get("front",""))
-                bh = _html.escape(item.get("back",""))
-                th = _html.escape(item.get("topic",""))
-
-                if not flipped:
-                    st.markdown(
-                        f'<div class="flip-card">'
-                        f'<span class="card-topic-pill">{th}</span>'
-                        f'<p class="card-q-label">Question</p>'
-                        f'<p class="card-question">{fh}</p>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                    col = st.columns([1,2,1])[1]
-                    with col:
-                        if st.button("Reveal answer", use_container_width=True, type="primary"):
-                            st.session_state.flash_flipped = True
-                            st.rerun()
-                else:
-                    st.markdown(
-                        f'<div class="flip-card">'
-                        f'<span class="card-topic-pill">{th}</span>'
-                        f'<p class="card-q-label">Question</p>'
-                        f'<p class="card-question-ghost">{fh}</p>'
-                        f'<div class="card-divider"></div>'
-                        f'<p class="card-q-label">Answer</p>'
-                        f'<p class="card-answer">{bh}</p>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown('<p class="rating-hint">How well did you know this?</p>', unsafe_allow_html=True)
-
-                    def _rate(r):
-                        prog = st.session_state.progress
-                        prog = record_review(prog, item["id"], r)
-                        xp   = XP_FOR_RATING.get(r, 0)
-                        prog = add_xp(prog, xp)
-                        st.session_state.progress = prog
-                        save_progress(prog)
-                        if r >= 3: st.session_state.flash_correct += 1
-                        st.session_state.session_xp      += xp
-                        st.session_state.session_ratings.append(r)
-                        st.session_state.flash_idx       += 1
-                        st.session_state.flash_flipped    = False
-                        st.rerun()
-
-                    c1, c2, c3, c4 = st.columns(4)
-                    with c1:
-                        if st.button("Again\nForgot it", use_container_width=True, help="Forgot"): _rate(1)
-                    with c2:
-                        if st.button("Hard\nStruggled",  use_container_width=True, help="Struggled"): _rate(2)
-                    with c3:
-                        if st.button("Good\nKnew it",    use_container_width=True, help="Knew it"): _rate(3)
-                    with c4:
-                        if st.button("Easy\nToo easy",   use_container_width=True, help="Too easy"): _rate(4)
-
-            # ── Quiz (MC) question ─────────────────────────────────────────
-            else:
-                qh   = _html.escape(item.get("question",""))
-                th   = _html.escape(item.get("topic",""))
-                opts = item.get("options", [])
-                answered = st.session_state.quiz_answered
-                selected = st.session_state.quiz_selected
-
+            if not flipped:
                 st.markdown(
                     f'<div class="flip-card">'
-                    f'<span class="card-topic-pill" style="background:#EDE8E3;color:#6B6760">Practice question · {th}</span>'
+                    f'<span class="card-topic-pill">{th}</span>'
                     f'<p class="card-q-label">Question</p>'
-                    f'<p class="card-question">{qh}</p>'
+                    f'<p class="card-question">{fh}</p>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+                col = st.columns([1,2,1])[1]
+                with col:
+                    if st.button("Reveal answer", use_container_width=True, type="primary"):
+                        st.session_state.flash_flipped = True
+                        st.rerun()
+            else:
+                st.markdown(
+                    f'<div class="flip-card">'
+                    f'<span class="card-topic-pill">{th}</span>'
+                    f'<p class="card-q-label">Question</p>'
+                    f'<p class="card-question-ghost">{fh}</p>'
+                    f'<div class="card-divider"></div>'
+                    f'<p class="card-q-label">Answer</p>'
+                    f'<p class="card-answer">{bh}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown('<p class="rating-hint">How well did you know this?</p>', unsafe_allow_html=True)
 
-                if not answered:
-                    for opt in opts:
-                        if st.button(opt, key=f"opt_{idx}_{opt}", use_container_width=True):
-                            st.session_state.quiz_selected = opt
-                            st.session_state.quiz_answered = True
-                            st.rerun()
-                else:
-                    correct_letter = item.get("correct","A")
-                    correct_opt    = next((o for o in opts if o.startswith(correct_letter)), "")
-                    is_correct     = (selected or "").startswith(correct_letter)
-                    xp             = XP_CORRECT if is_correct else XP_ATTEMPT
-
-                    # Record attempt
+                def _rate(r):
                     prog = st.session_state.progress
-                    prog = record_quiz_attempt(prog, item["id"], is_correct)
+                    prog = record_review(prog, card["id"], r)
+                    xp   = XP_FOR_RATING.get(r, 0)
                     prog = add_xp(prog, xp)
                     st.session_state.progress = prog
+                    save_progress(prog)
+                    if r >= 3: st.session_state.flash_correct += 1
+                    st.session_state.session_xp      += xp
+                    st.session_state.session_ratings.append(r)
+                    st.session_state.flash_idx       += 1
+                    st.session_state.flash_flipped    = False
+                    st.rerun()
 
-                    for opt in opts:
-                        is_sel = opt == selected
-                        is_cor = opt == correct_opt
-                        if is_cor:
-                            st.success(f"✓ {opt}")
-                        elif is_sel and not is_cor:
-                            st.error(f"✗ {opt}")
-                        else:
-                            st.markdown(f"&nbsp;&nbsp;{opt}")
-
-                    if is_correct:
-                        st.markdown(f'<p style="color:#B87C65;font-weight:600;margin:8px 0 4px">+{xp} XP — Correct!</p>', unsafe_allow_html=True)
-                        st.session_state.session_quiz_correct += 1
-                    else:
-                        st.markdown(f'<p style="color:#8C8881;font-weight:600;margin:8px 0 4px">+{xp} XP — Not quite.</p>', unsafe_allow_html=True)
-
-                    st.caption(f"Explanation: {item.get('explanation','')}")
-                    st.session_state.session_xp         += xp
-                    st.session_state.session_quiz_total += 1
-
-                    col = st.columns([1,2,1])[1]
-                    with col:
-                        if st.button("Next", use_container_width=True, type="primary", key=f"qnext_{idx}"):
-                            save_progress(st.session_state.progress)
-                            st.session_state.flash_idx    += 1
-                            st.session_state.quiz_selected = None
-                            st.session_state.quiz_answered = False
-                            st.rerun()
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    if st.button("Again\nForgot it", use_container_width=True, help="Forgot"): _rate(1)
+                with c2:
+                    if st.button("Hard\nStruggled",  use_container_width=True, help="Struggled"): _rate(2)
+                with c3:
+                    if st.button("Good\nKnew it",    use_container_width=True, help="Knew it"): _rate(3)
+                with c4:
+                    if st.button("Easy\nToo easy",   use_container_width=True, help="Too easy"): _rate(4)
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("End session", key="end_sess", type="secondary"):
+            if st.button("End review", key="end_sess", type="secondary"):
                 save_progress(st.session_state.progress)
                 st.session_state.flash_queue   = []
                 st.session_state.flash_idx     = 0
                 st.session_state.flash_flipped = False
-                st.session_state.quiz_selected = None
-                st.session_state.quiz_answered = False
                 st.rerun()
 
 
