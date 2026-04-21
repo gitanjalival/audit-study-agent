@@ -32,7 +32,36 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-CACHE_FILE = os.path.join(os.path.dirname(__file__), "materials_cache.json")
+CACHE_FILE          = os.path.join(os.path.dirname(__file__), "materials_cache.json")
+PAUSED_SESSION_FILE = os.path.join(os.path.dirname(__file__), "paused_session.json")
+
+
+# ─── Paused session persistence ────────────────────────────────────────────────
+def _save_paused_session():
+    data = {
+        "practice_queue":   st.session_state.practice_queue,
+        "practice_idx":     st.session_state.practice_idx,
+        "practice_mode":    st.session_state.practice_mode,
+        "practice_correct": st.session_state.practice_correct,
+        "session_xp":       st.session_state.session_xp,
+        "session_ratings":  st.session_state.session_ratings,
+    }
+    with open(PAUSED_SESSION_FILE, "w") as f:
+        json.dump(data, f)
+
+def _load_paused_session() -> dict | None:
+    if not os.path.exists(PAUSED_SESSION_FILE):
+        return None
+    try:
+        with open(PAUSED_SESSION_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+def _clear_paused_session():
+    if os.path.exists(PAUSED_SESSION_FILE):
+        try: os.remove(PAUSED_SESSION_FILE)
+        except Exception: pass
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -327,6 +356,18 @@ if not st.session_state.materials:
 if st.session_state.progress is None:
     st.session_state.progress = load_progress()
 
+# ─── Restore paused session from disk (survives refresh) ──────────────────────
+if not st.session_state.practice_queue:
+    _ps = _load_paused_session()
+    if _ps and _ps.get("practice_queue"):
+        st.session_state.practice_queue   = _ps["practice_queue"]
+        st.session_state.practice_idx     = _ps.get("practice_idx", 0)
+        st.session_state.practice_mode    = _ps.get("practice_mode", "spaced")
+        st.session_state.practice_correct = _ps.get("practice_correct", 0)
+        st.session_state.session_xp       = _ps.get("session_xp", 0)
+        st.session_state.session_ratings  = _ps.get("session_ratings", [])
+        st.session_state.practice_paused  = True
+
 # ─── Resolve API key ───────────────────────────────────────────────────────────
 api_key = ""
 try:    api_key = st.secrets["ANTHROPIC_API_KEY"]
@@ -413,8 +454,11 @@ def _confetti():
   }
 
   var frame = 0;
-  var FALL  = 90;   // frames of full fall
-  var FADE  = 40;   // frames to fade out
+  var FALL  = 40;   // frames of full fall (~0.65s at 60fps)
+  var FADE  = 15;   // frames to fade out (~0.25s)
+
+  // Safety net: force-remove canvas after 2s no matter what
+  var killTimer = setTimeout(function() { try { canvas.remove(); } catch(e) {} }, 2000);
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
@@ -437,8 +481,8 @@ def _confetti():
       ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
       ctx.restore();
     });
-    if (alive) requestAnimationFrame(draw);
-    else        canvas.remove();
+    if (alive) { requestAnimationFrame(draw); }
+    else { clearTimeout(killTimer); try { canvas.remove(); } catch(e) {} }
   }
   requestAnimationFrame(draw);
 })();
@@ -696,6 +740,7 @@ with tab_practice:
                     st.rerun()
             with rc2:
                 if st.button("Discard", use_container_width=True, key="discard_btn"):
+                    _clear_paused_session()
                     st.session_state.practice_queue    = []
                     st.session_state.practice_idx      = 0
                     st.session_state.practice_paused   = False
@@ -767,6 +812,7 @@ with tab_practice:
 
     # ── Session complete ──────────────────────────────────────────────────────
     elif st.session_state.practice_idx >= len(st.session_state.practice_queue):
+        _clear_paused_session()   # session finished — remove any saved state
         prog    = st.session_state.progress
         new_ach = check_new_achievements(prog, st.session_state.session_ratings)
         if new_ach:
@@ -808,8 +854,10 @@ with tab_practice:
         col = st.columns([1,2,1])[1]
         with col:
             if st.button("Practice again", use_container_width=True, type="primary"):
+                _clear_paused_session()
                 st.session_state.practice_queue    = []
                 st.session_state.practice_idx      = 0
+                st.session_state.practice_paused   = False
                 st.session_state.session_xp        = 0
                 st.session_state.session_ratings   = []
                 st.rerun()
@@ -900,6 +948,7 @@ with tab_practice:
         with pb1:
             if st.button("Pause", key="p_pause", use_container_width=True):
                 save_progress(st.session_state.progress)
+                _save_paused_session()
                 st.session_state.practice_paused   = True
                 st.session_state.practice_selected = None
                 st.session_state.practice_answered = False
@@ -907,6 +956,7 @@ with tab_practice:
         with pb2:
             if st.button("End session", key="p_end", type="secondary", use_container_width=True):
                 save_progress(st.session_state.progress)
+                _clear_paused_session()
                 st.session_state.practice_queue    = []
                 st.session_state.practice_idx      = 0
                 st.session_state.practice_paused   = False
