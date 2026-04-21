@@ -8,6 +8,8 @@ confidence-based learning, and immediate feedback.
 import html as _html
 import json
 import os
+import threading
+import time
 from datetime import date
 
 import streamlit as st
@@ -219,6 +221,7 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 for k, v in {
     "materials":{}, "cache_date":None, "progress":None,
     "flash_queue":[], "flash_idx":0, "flash_flipped":False, "flash_correct":0,
+    "flash_generating":False, "flash_gen_error":None,
     "last_summary":None, "last_plan":None,
     "last_questions":None, "quiz_answers":{}, "quiz_submitted":False, "quiz_error":None,
     "api_key":"",
@@ -255,22 +258,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ─── API key gate ──────────────────────────────────────────────────────────────
-if not api_key:
-    st.markdown(
-        '<div class="api-banner"><div class="api-banner-text">'
-        '<strong>Enter your Anthropic API key to get started</strong><br>'
-        'Get one at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>'
-        ' — $5 of free credit is plenty.'
-        '</div></div>',
-        unsafe_allow_html=True,
-    )
-    entered = st.text_input("Anthropic API key", type="password", placeholder="sk-ant-…")
-    if entered:
-        st.session_state.api_key = entered
-        api_key = entered
-        st.rerun()
-    st.stop()
+# ─── API key — soft notice only (flashcards work without it) ───────────────────
+# No hard gate. API key is only required for AI Tools tab features.
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 def _text(d):
@@ -281,6 +270,40 @@ def _acc_color(a):
     if a < 0.7:  return "#C4963A"   # warm amber
     if a < 0.85: return "#7A9E88"   # sage green
     return "#B87C65"                # terracotta
+
+# ─── Background flashcard generation ──────────────────────────────────────────
+def _bg_generate(api_key_val, materials_text, topic_plan):
+    """Run in a daemon thread — writes cards to disk when done."""
+    try:
+        cards = generate_flashcards(api_key_val, materials_text, topic_plan)
+        save_flashcards(cards)
+    except Exception as e:
+        # Write error to a small sentinel file the main thread can detect
+        try:
+            err_path = os.path.join(os.path.dirname(__file__), "_flash_gen_error.txt")
+            with open(err_path, "w") as f:
+                f.write(str(e))
+        except Exception:
+            pass
+
+def _start_bg_generation(api_key_val, mats_dict):
+    """Kick off background generation if not already running."""
+    if st.session_state.flash_generating:
+        return
+    # Clear any previous error sentinel
+    err_path = os.path.join(os.path.dirname(__file__), "_flash_gen_error.txt")
+    if os.path.exists(err_path):
+        os.remove(err_path)
+    st.session_state.flash_generating = True
+    st.session_state.flash_gen_error  = None
+    w = get_weighted_topics(num_questions=50)
+    if mats_dict:
+        notes = {k:v for k,v in mats_dict.items() if v.get("type") in ("notes","reading")}
+        mat_text = _text(notes) if notes else _text(mats_dict)
+    else:
+        mat_text = ""
+    t = threading.Thread(target=_bg_generate, args=(api_key_val, mat_text, w["topic_plan"]), daemon=True)
+    t.start()
 
 def _streak_strip(progress, n=7):
     cal = streak_calendar(progress, n)
@@ -313,23 +336,53 @@ with st.sidebar:
     st.divider()
     st.caption("Materials auto-refresh from Box after each Tue/Thu class.")
     st.divider()
+    st.divider()
+    st.caption("API key — needed for AI Tools & flashcard regeneration only.")
+    key_input = st.text_input("Anthropic API key", type="password", placeholder="sk-ant-…", value=api_key or "")
+    if key_input and key_input != api_key:
+        st.session_state.api_key = key_input
+        api_key = key_input
+        st.rerun()
+    if api_key:
+        st.success("Key saved", icon="✓")
+    st.divider()
     if st.button("Regenerate flashcards"):
-        with st.spinner("Generating…"):
-            try:
-                w = get_weighted_topics(num_questions=50)
-                if mats:
-                    notes = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
-                    materials_text = _text(notes) if notes else _text(mats)
-                else:
-                    materials_text = ""
-                cards = generate_flashcards(api_key, materials_text, w["topic_plan"])
-                save_flashcards(cards)
-                st.session_state.flash_queue = []
-                st.success(f"{len(cards)} cards ready")
-                st.rerun()
-            except Exception as e: st.error(str(e))
-    new_key = st.text_input("Change API key", type="password", placeholder="sk-ant-…")
-    if new_key: st.session_state.api_key = new_key; st.rerun()
+        if not api_key:
+            st.error("Enter an API key above first.")
+        else:
+            with st.spinner("Generating…"):
+                try:
+                    w = get_weighted_topics(num_questions=50)
+                    if mats:
+                        notes = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
+                        materials_text = _text(notes) if notes else _text(mats)
+                    else:
+                        materials_text = ""
+                    cards = generate_flashcards(api_key, materials_text, w["topic_plan"])
+                    save_flashcards(cards)
+                    st.session_state.flash_queue = []
+                    st.success(f"{len(cards)} cards ready")
+                    st.rerun()
+                except Exception as e: st.error(str(e))
+
+# ─── Auto-generate flashcards in background on load ───────────────────────────
+mats = st.session_state.materials
+_existing_cards = load_flashcards()
+_err_path = os.path.join(os.path.dirname(__file__), "_flash_gen_error.txt")
+
+if not _existing_cards and api_key and not st.session_state.flash_generating:
+    _start_bg_generation(api_key, mats)
+
+# Check if background thread just finished (file appeared) or errored
+if st.session_state.flash_generating:
+    if load_flashcards():                       # cards file now has content
+        st.session_state.flash_generating = False
+        st.rerun()
+    elif os.path.exists(_err_path):             # error sentinel written
+        with open(_err_path) as _f:
+            st.session_state.flash_gen_error = _f.read()
+        st.session_state.flash_generating = False
+        os.remove(_err_path)
 
 # ─── Tabs ──────────────────────────────────────────────────────────────────────
 tab_flash, tab_quiz, tab_progress, tab_ai = st.tabs(["Flashcards", "Practice", "Progress", "AI Tools"])
@@ -340,33 +393,42 @@ with tab_flash:
     progress  = st.session_state.progress
     all_cards = load_flashcards()
 
-    # ── No cards yet — offer generation ──────────────────────────────────────
+    # ── No cards yet — show loading state or error ────────────────────────────
     if not all_cards:
-        source_note = "from your course materials" if mats else "from the ACCT 40510 course outline"
-        st.markdown(
-            f'<div class="hero-card">'
-            f'<p class="hero-eyebrow">Flashcard deck</p>'
-            f'<h2 class="hero-title">Build your deck</h2>'
-            f'<p class="hero-body">50 AI-generated cards covering every topic, weighted by what Prof. Morrison tests — generated {source_note}.</p>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        col = st.columns([1,2,1])[1]
-        with col:
-            if st.button("Generate flashcards", use_container_width=True, type="primary"):
-                with st.spinner("Creating 50 cards…"):
-                    try:
-                        w = get_weighted_topics(num_questions=50)
-                        if mats:
-                            notes = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
-                            materials_text = _text(notes) if notes else _text(mats)
-                        else:
-                            materials_text = ""
-                        cards = generate_flashcards(api_key, materials_text, w["topic_plan"])
-                        save_flashcards(cards)
-                        st.session_state.flash_queue = []
-                        st.rerun()
-                    except Exception as e: st.error(str(e))
+        if st.session_state.flash_gen_error:
+            st.error(f"Could not generate flashcards: {st.session_state.flash_gen_error}")
+            col = st.columns([1,2,1])[1]
+            with col:
+                if st.button("Try again", use_container_width=True, type="primary"):
+                    st.session_state.flash_gen_error = None
+                    _start_bg_generation(api_key, mats)
+                    st.rerun()
+        elif st.session_state.flash_generating:
+            st.markdown(
+                '<div class="hero-card">'
+                '<p class="hero-eyebrow">Building your deck</p>'
+                '<h2 class="hero-title">Generating 50 cards…</h2>'
+                '<p class="hero-body">AI is reading your course materials and creating cards weighted by what Prof. Morrison tests. This takes about 30 seconds — hang tight.</p>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            time.sleep(3)
+            st.rerun()
+        else:
+            # Shouldn't normally reach here, but offer manual trigger as fallback
+            st.markdown(
+                '<div class="hero-card">'
+                '<p class="hero-eyebrow">Flashcard deck</p>'
+                '<h2 class="hero-title">Ready to generate</h2>'
+                '<p class="hero-body">Your deck will be built from your course materials and weighted by what Prof. Morrison tests.</p>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            col = st.columns([1,2,1])[1]
+            with col:
+                if st.button("Generate flashcards", use_container_width=True, type="primary"):
+                    _start_bg_generation(api_key, mats)
+                    st.rerun()
 
     # ── Dashboard — cards exist, no active session ────────────────────────────
     elif not st.session_state.flash_queue:
@@ -544,6 +606,9 @@ with tab_quiz:
                 st.info(weighted["summary"])
 
             if st.button("Generate questions", type="primary", key="btn_q"):
+              if not api_key:
+                st.warning("Add your Anthropic API key in the sidebar to generate questions.")
+              else:
                 with st.spinner("Crafting questions…"):
                     try:
                         w = get_weighted_topics(num_questions=num_q)
@@ -675,7 +740,9 @@ with tab_ai:
     else:
         tool = st.radio("", ["Summary", "Study Plan"], horizontal=True, label_visibility="collapsed")
 
-        if tool == "Summary":
+        if not api_key:
+            st.info("Add your Anthropic API key in the sidebar to use AI tools.")
+        elif tool == "Summary":
             st.markdown('<p class="section-label">Exam-ready summary from your materials</p>', unsafe_allow_html=True)
             sel = st.multiselect("Files to include", list(mats.keys()), default=list(mats.keys()))
             if st.button("Generate summary", type="primary"):
