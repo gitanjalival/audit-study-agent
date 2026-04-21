@@ -134,7 +134,7 @@ def generate_practice_questions(
     api_key: str,
     notes_text: str,
     quiz_examples: str,
-    num_questions: int = 5,
+    num_questions: int = 20,
     question_types: list | None = None,
     difficulty: str = "Mixed",
     include_answers: bool = True,
@@ -251,7 +251,7 @@ Start your response with [ and end with ]. Nothing else."""
 
     response = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=3000,
+        max_tokens=7000,
         messages=[{"role": "user", "content": prompt}],
     )
 

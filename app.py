@@ -483,9 +483,9 @@ with tab_practice:
 
     # ── Helper: generate questions for a session ──────────────────────────────
     def _build_practice_questions():
-        """Generate 10 fresh MC questions from course materials, algorithm-weighted."""
+        """Generate 20 fresh MC questions from course materials, algorithm-weighted."""
         from schedule import get_weighted_topics_with_performance
-        algo     = get_weighted_topics_with_performance(progress, all_cards, num_questions=10)
+        algo     = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
         notes    = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
         quizzes  = {k:v for k,v in mats.items() if v.get("type") == "quiz"}
         notes_t  = _text(notes or mats)
@@ -494,7 +494,7 @@ with tab_practice:
             api_key=api_key,
             notes_text=notes_t,
             quiz_examples=quiz_t,
-            num_questions=10,
+            num_questions=20,
             question_types=["Multiple Choice"],
             difficulty="Mixed",
             topic_plan=algo["topic_plan"],
@@ -515,7 +515,7 @@ with tab_practice:
     # ── No active session — dashboard ────────────────────────────────────────
     if not st.session_state.practice_queue:
         from schedule import get_weighted_topics_with_performance
-        algo  = get_weighted_topics_with_performance(progress, all_cards, num_questions=10)
+        algo  = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
         focus = algo.get("focus_summary","")
         stats = get_today_stats(progress)
 
@@ -531,9 +531,9 @@ with tab_practice:
         st.markdown(
             f'<div class="hero-card" style="margin-top:12px">'
             f'<p class="hero-eyebrow">Retrieval practice</p>'
-            f'<h2 class="hero-title">10 practice questions</h2>'
-            f'<p class="hero-body">Prof. Morrison-style questions generated from your course materials. '
-            f'Topics weighted by what you studied recently and what you know least well.{focus_html}</p>'
+            f'<h2 class="hero-title">20 practice questions</h2>'
+            f'<p class="hero-body">Prof. Morrison-style questions generated fresh from your course materials. '
+            f'This week\'s topics come first, then spaced review of older material.{focus_html}</p>'
             f'</div>',
             unsafe_allow_html=True,
         )

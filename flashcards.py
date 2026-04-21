@@ -102,41 +102,77 @@ def count_due(all_cards: list, progress: dict) -> dict:
 
 def generate_flashcards(api_key: str, materials_text: str, topic_plan: list) -> list:
     """
-    Generate 50 high-quality Anki-style flashcards from course materials.
-    Cards are interleaved across topics (not blocked by chapter).
+    Generate 75 definition-first flashcards optimised for SM-2 spaced repetition.
+
+    Research basis:
+      - Kornell & Bjork (2008): interleaved, atomic cards beat blocked review
+      - Karpicke & Roediger (2008): retrieval practice requires clear right/wrong signal
+      - Wozniak SM-2: works best when each card tests exactly one concept
+    Cards are weighted toward recent topics so the deck reinforces this week's learning
+    first, while still seeding older material for spaced retrieval practice.
     """
     client = anthropic.Anthropic(api_key=api_key)
 
-    topic_lines = [
-        f"Class {e['class_num']} — {e['topic']}: {', '.join(e['concepts'][:6])}"
-        for e in topic_plan if e.get("concepts")
-    ]
+    # Build per-topic allocation string — recent topics get more cards
+    total_w = sum(e.get("weight", 1) for e in topic_plan if e.get("concepts"))
+    topic_lines = []
+    for e in topic_plan:
+        if not e.get("concepts"):
+            continue
+        alloc = max(1, round(e.get("weight", 1) / total_w * 75))
+        topic_lines.append(
+            f"  [{alloc} cards] Class {e['class_num']} — {e['topic']}: "
+            f"{', '.join(e['concepts'][:8])}"
+        )
 
-    prompt = f"""You are creating Anki-style flashcards for a Notre Dame student in ACCT 40510 Auditing (Prof. Morrison, Spring 2026).
+    prompt = f"""You are building a spaced-repetition flashcard deck for a Notre Dame student in ACCT 40510 Auditing (Prof. Morrison, Spring 2026).
 
-COURSE TOPICS:
+TOPIC ALLOCATION (weighted by recency — recent classes get more cards):
 {chr(10).join(topic_lines)}
 
 COURSE MATERIALS:
 {materials_text}
 
-Create exactly 50 flashcards. Mix these types proportionally:
-- Definition (20%): "What is [term]?" → clear, complete definition
-- Application (30%): "An auditor encounters X — what should they do and why?"
-- Distinction (20%): "What is the difference between X and Y?"
-- Rule/Standard (20%): "Under [PCAOB/GAAS/ASC], what does [requirement] state?"
-- Scenario (10%): "Given [situation], which assertion is most at risk and why?"
+─────────────────────────────────────────
+CARD FORMAT RULES (critical for SM-2 to work)
+─────────────────────────────────────────
+Each card must test EXACTLY ONE concept so the student has a clear pass/fail signal.
 
-STRICT RULES:
-1. FRONT: max 2 sentences. Specific, clear question. No vague "explain" questions.
-2. BACK: 2–4 sentences of plain prose. No bullet points. Complete and accurate.
-3. Test UNDERSTANDING — not just recall of a definition.
-4. Cover all major topics. Don't over-index on early material.
-5. ID must be a unique kebab-case slug (e.g. "audit-risk-model-formula").
-6. Topic field must match the class topic name exactly.
+Use these three types in the proportions shown:
+
+1. DEFINITION (60% of cards)
+   Front: "What is [term]?"   OR   "[Term]:" (for pure vocabulary)
+   Back: ONE clear sentence defining the term. Add one sentence of context only if essential.
+   Good example:
+     Front: "What is tolerable misstatement?"
+     Back: "The maximum monetary error in an account balance or class of transactions that the auditor can accept without concluding the financial statements are materially misstated. It is always set below planning materiality."
+
+2. DISTINCTION (25% of cards)
+   Front: "What is the difference between [X] and [Y]?"
+   Back: One sentence on X, one sentence on Y. No more.
+   Good example:
+     Front: "What is the difference between a significant deficiency and a material weakness?"
+     Back: "A significant deficiency is a control deficiency important enough to merit attention but less severe than a material weakness. A material weakness creates a reasonable possibility that a material misstatement will not be prevented or detected on a timely basis."
+
+3. KEY RULE (15% of cards)
+   Front: "Under [standard/framework], what is [requirement]?"
+   Back: State the rule in plain language in 1–2 sentences.
+
+─────────────────────────────────────────
+STRICT QUALITY RULES
+─────────────────────────────────────────
+1. FRONT: max 15 words. One sharp question, no vague "explain" prompts.
+2. BACK: max 3 sentences. Plain prose — NO bullet points, NO sub-lists.
+3. Atomic: each card tests ONE thing. If you feel the urge to say "and also…" split it into two cards.
+4. Memorable: prefer concrete over abstract. Use numbers, thresholds, and examples where they exist (e.g. "1-day interval → 6-day interval → EF × prior interval").
+5. Accurate: every definition must be technically correct for PCAOB / GAAS / ACCT 40510.
+6. IDs must be unique kebab-case slugs (e.g. "tolerable-misstatement-def").
+7. Topic field must exactly match the class topic name from the allocation list above.
+8. Generate exactly 75 cards. Respect the per-topic allocations closely (±1 card per topic is fine).
 
 Return ONLY a valid JSON array. No markdown fences, no text outside the array.
-Schema per card: {{"id":"slug","front":"question","back":"answer","topic":"Topic Name","class_num":4}}
+Schema per card:
+{{"id":"slug","front":"question text","back":"answer text","topic":"Topic Name","class_num":4}}
 Start with [ and end with ]. Nothing else."""
 
     resp = client.messages.create(
