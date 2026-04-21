@@ -15,13 +15,15 @@ from datetime import date
 import streamlit as st
 import streamlit.components.v1 as components
 
-from agent import generate_summary, generate_study_plan, generate_practice_questions
+from agent import (generate_summary, generate_study_plan, generate_practice_questions,
+                   generate_session_debrief, generate_tutor_response)
 from quiz import (load_questions, get_weighted_questions,
                   record_quiz_attempt, XP_CORRECT, XP_ATTEMPT)
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
 from progress import (load_progress, save_progress, record_review, get_today_stats,
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
-                      check_new_achievements, DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS)
+                      check_new_achievements, record_misconception, get_top_misconceptions,
+                      DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS)
 from schedule import get_weighted_topics
 
 # ─── Page config ──────────────────────────────────────────────────────────────
@@ -320,6 +322,38 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .new-ach-label { font-size:0.65rem; letter-spacing:0.12em; text-transform:uppercase; color:#B87C65; font-weight:600; margin:0 0 2px; }
 .new-ach-name  { font-size:0.9rem; font-weight:700; color:#1E1D1A; margin:0 0 2px; }
 .new-ach-desc  { font-size:0.75rem; color:#5C5A54; margin:0; }
+
+/* ── Exam urgency banner ── */
+.exam-banner {
+    border-radius: 14px; padding: 14px 20px; margin-bottom: 18px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.exam-banner.urgent  { background:#FEF0EE; border:1.5px solid #C46356; }
+.exam-banner.warning { background:#FEF9EE; border:1.5px solid #C4963A; }
+.exam-banner-text { font-size:0.85rem; font-weight:600; color:#1E1D1A; margin:0; }
+.exam-banner-sub  { font-size:0.72rem; color:#8A8780; margin:0; }
+
+/* ── Debrief card ── */
+.debrief-card {
+    background:#F7F5F1; border:1px solid #E8E4DC; border-radius:16px;
+    padding:22px 26px; margin-bottom:16px;
+}
+.debrief-eyebrow { font-size:0.6rem; letter-spacing:0.15em; text-transform:uppercase; color:#B87C65; font-weight:700; margin:0 0 10px; }
+.debrief-text { font-size:0.88rem; color:#2C2C28; line-height:1.75; margin:0; }
+
+/* ── Tutor bubble ── */
+.tutor-bubble {
+    background:#EDF3EF; border:1px solid #BDD3C5; border-radius:14px;
+    padding:16px 20px; margin:10px 0;
+}
+.tutor-label { font-size:0.6rem; letter-spacing:0.14em; text-transform:uppercase; color:#5A8068; font-weight:700; margin:0 0 6px; }
+.tutor-text  { font-size:0.85rem; color:#2A4A33; line-height:1.7; margin:0; }
+
+/* ── Misconception card ── */
+.miscon-card { background:#FFFFFF; border:1px solid #E8E4DC; border-radius:14px; padding:16px 20px; margin-bottom:10px; }
+.miscon-topic { font-size:0.62rem; font-weight:700; color:#B87C65; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 4px; }
+.miscon-text  { font-size:0.83rem; color:#2C2C28; margin:0 0 4px; line-height:1.5; }
+.miscon-count { font-size:0.72rem; color:#8A8780; margin:0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -334,6 +368,8 @@ for k, v in {
     "practice_selected":None, "practice_answered":False,
     "practice_correct":0, "practice_generating":False,
     "practice_mode":"spaced", "practice_paused":False,
+    "session_results":[], "session_debrief":None,
+    "tutor_response":None, "tutor_q_idx":-1,
     # Legacy quiz tracking (kept for backward compat)
     "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
@@ -395,6 +431,23 @@ def _goal_bar(progress):
         f'<div class="goal-track"><div class="goal-fill" style="width:{pct}%"></div></div>'
         f'</div>'
     )
+
+# ─── Exam urgency banner ───────────────────────────────────────────────────────────
+from schedule import days_until_next_exam
+_days_left = days_until_next_exam()
+if _days_left is not None:
+    if _days_left <= 3:
+        st.markdown(
+            f'<div class="exam-banner urgent">'
+            f'<div><p class="exam-banner-text">🔴 Exam in {_days_left} day{"s" if _days_left != 1 else ""}</p>'
+            f'<p class="exam-banner-sub">Switch to Spaced Review to cover all topics before the exam.</p></div>'
+            f'</div>', unsafe_allow_html=True)
+    elif _days_left <= 7:
+        st.markdown(
+            f'<div class="exam-banner warning">'
+            f'<div><p class="exam-banner-text">⚠️ Exam in {_days_left} days</p>'
+            f'<p class="exam-banner-sub">Start mixing in Spaced Review sessions to shore up older topics.</p></div>'
+            f'</div>', unsafe_allow_html=True)
 
 st.markdown(_goal_bar(st.session_state.progress), unsafe_allow_html=True)
 
@@ -551,6 +604,18 @@ with st.sidebar:
     else:
         st.warning("No materials loaded yet")
     if st.session_state.cache_date: st.caption(f"Updated: {st.session_state.cache_date}")
+
+    # Check for new classes since last sync
+    if st.session_state.cache_date:
+        try:
+            from datetime import datetime as _dt
+            from schedule import get_completed_classes
+            cache_dt = _dt.strptime(st.session_state.cache_date[:10], "%Y-%m-%d").date()
+            new_classes = [c for c in get_completed_classes() if c[1] > cache_dt]
+            if new_classes:
+                st.warning(f"{len(new_classes)} new class{'es' if len(new_classes)>1 else ''} since last sync — regenerate flashcards to include new material.")
+        except Exception:
+            pass
     st.divider()
     st.caption("Materials auto-refresh from Box after each Tue/Thu class.")
     st.divider()
@@ -671,6 +736,25 @@ with tab_practice:
                     e["num_questions"] -= 1; diff -= 1
                 elif diff < 0:
                     e["num_questions"] += 1; diff += 1
+        elif mode == "drill":
+            weak = get_weak_spots(progress, all_cards)
+            drill_topics = {w["topic"] for w in weak[:3]}
+            plan = [e for e in algo["topic_plan"] if e.get("topic") in drill_topics]
+            if not plan:
+                plan = algo["topic_plan"]
+            # Re-allocate all 20 questions among drill topics
+            tw = sum(e.get("combined_weight", e.get("weight", 1)) for e in plan) or 1
+            for e in plan:
+                e["num_questions"] = max(1, round(
+                    e.get("combined_weight", e.get("weight", 1)) / tw * 20
+                ))
+            diff = sum(e["num_questions"] for e in plan) - 20
+            for e in sorted(plan, key=lambda x: x.get("combined_weight", 1)):
+                if diff == 0: break
+                if diff > 0 and e["num_questions"] > 1:
+                    e["num_questions"] -= 1; diff -= 1
+                elif diff < 0:
+                    e["num_questions"] += 1; diff += 1
         else:
             plan = algo["topic_plan"]
 
@@ -780,6 +864,10 @@ with tab_practice:
                         st.session_state.practice_mode     = mode
                         st.session_state.session_xp        = 0
                         st.session_state.session_ratings   = []
+                        st.session_state.session_results   = []
+                        st.session_state.session_debrief   = None
+                        st.session_state.tutor_response    = None
+                        st.session_state.tutor_q_idx       = -1
                         st.rerun()
                     except Exception as e:
                         st.error(f"Could not generate questions: {e}")
@@ -810,6 +898,34 @@ with tab_practice:
                 if st.button("Spaced review →", use_container_width=True, key="start_spaced"):
                     _start("spaced")
 
+            # ── Drill mode (full-width) ───────────────────────────────────────
+            weak = get_weak_spots(st.session_state.progress, all_cards)
+            if weak:
+                drill_topics = weak[:3]
+                drill_names  = " · ".join(w["topic"] for w in drill_topics)
+                drill_accs   = " · ".join(f"{w['topic']} ({int(w['accuracy']*100)}%)" for w in drill_topics)
+                st.markdown(
+                    f'<div class="mode-card" style="margin-top:4px">'
+                    f'<div class="mode-divider"></div>'
+                    f'<p class="mode-eyebrow">Drill weak spots</p>'
+                    f'<p class="mode-title">Target your gaps</p>'
+                    f'<p class="mode-body">{drill_accs}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("Drill weak spots →", use_container_width=True, key="start_drill"):
+                    _start("drill")
+            else:
+                st.markdown(
+                    '<div class="mode-card" style="margin-top:4px;opacity:0.5">'
+                    '<div class="mode-divider"></div>'
+                    '<p class="mode-eyebrow">Drill weak spots</p>'
+                    '<p class="mode-title">Target your gaps</p>'
+                    '<p class="mode-body">Review more flashcards first to unlock drill mode — needs at least 3 reviews per topic.</p>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+
     # ── Session complete ──────────────────────────────────────────────────────
     elif st.session_state.practice_idx >= len(st.session_state.practice_queue):
         _clear_paused_session()   # session finished — remove any saved state
@@ -830,6 +946,25 @@ with tab_practice:
             f'<p class="xp-sub">XP earned this session</p></div>',
             unsafe_allow_html=True,
         )
+
+        # ── Post-session debrief ───────────────────────────────────────────────
+        if api_key and st.session_state.session_results:
+            if not st.session_state.session_debrief:
+                with st.spinner("Generating your session debrief…"):
+                    try:
+                        st.session_state.session_debrief = generate_session_debrief(
+                            api_key, st.session_state.session_results
+                        )
+                    except Exception:
+                        st.session_state.session_debrief = ""
+            if st.session_state.session_debrief:
+                st.markdown(
+                    f'<div class="debrief-card">'
+                    f'<p class="debrief-eyebrow">Session debrief</p>'
+                    f'<p class="debrief-text">{_html.escape(st.session_state.session_debrief)}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
         if get_xp_today(prog) >= DAILY_GOAL_XP:
             st.markdown('<div class="caught-card" style="margin-bottom:12px">'
@@ -910,7 +1045,19 @@ with tab_practice:
             prog = st.session_state.progress
             prog = record_quiz_attempt(prog, item["id"], is_correct)
             prog = add_xp(prog, xp)
+            # Track misconceptions on wrong answers
+            if not is_correct and selected and correct_opt:
+                prog = record_misconception(prog, item.get("topic","?"), selected[:60], correct_opt[:60])
             st.session_state.progress = prog
+            # Append to session results for debrief
+            st.session_state.session_results.append({
+                "question":       item.get("question",""),
+                "topic":          item.get("topic",""),
+                "correct":        is_correct,
+                "chosen":         selected or "",
+                "correct_answer": correct_opt,
+                "explanation":    item.get("explanation",""),
+            })
 
             for opt in opts:
                 is_cor = opt == correct_opt
@@ -929,6 +1076,42 @@ with tab_practice:
             color    = "#B87C65" if is_correct else "#8C8881"
             st.markdown(f'<p style="color:{color};font-weight:600;margin:8px 0 4px">{xp_label}</p>', unsafe_allow_html=True)
             st.caption(f"Explanation: {item.get('explanation','')}")
+
+            # ── AI Tutor ──────────────────────────────────────────────────────
+            if api_key:
+                if st.session_state.tutor_q_idx != idx:
+                    if st.button("Why? Ask the tutor →", key=f"tutor_btn_{idx}"):
+                        st.session_state.tutor_q_idx  = idx
+                        st.session_state.tutor_response = None
+                        st.rerun()
+                else:
+                    tutor_input = st.text_input(
+                        "Ask a follow-up question",
+                        placeholder="e.g. Why isn't B correct? What's the difference between X and Y?",
+                        key=f"tutor_input_{idx}",
+                    )
+                    if st.button("Ask", key=f"tutor_ask_{idx}", type="primary") and tutor_input.strip():
+                        with st.spinner("Thinking…"):
+                            try:
+                                st.session_state.tutor_response = generate_tutor_response(
+                                    api_key=api_key,
+                                    question_text=item.get("question",""),
+                                    correct_answer=correct_opt,
+                                    explanation=item.get("explanation",""),
+                                    user_question=tutor_input.strip(),
+                                    topic=item.get("topic",""),
+                                )
+                            except Exception as e:
+                                st.session_state.tutor_response = f"Could not reach tutor: {e}"
+                        st.rerun()
+                    if st.session_state.tutor_response:
+                        st.markdown(
+                            f'<div class="tutor-bubble">'
+                            f'<p class="tutor-label">Tutor</p>'
+                            f'<p class="tutor-text">{_html.escape(st.session_state.tutor_response)}</p>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
 
             if is_correct:
                 st.session_state.practice_correct += 1
@@ -1253,6 +1436,24 @@ with tab_progress:
             st.info("Study at least 3 cards per topic to see accuracy data here.")
     else:
         st.info("Generate flashcards to start tracking progress.")
+
+    # Misconceptions
+    miscons = get_top_misconceptions(st.session_state.progress)
+    if miscons:
+        st.markdown('<p class="section-label">Persistent confusions — study these distinctions</p>', unsafe_allow_html=True)
+        for m in miscons:
+            parts = m["confusion"].split(" → ")
+            chose_txt   = parts[0] if len(parts) == 2 else m["confusion"]
+            correct_txt = parts[1] if len(parts) == 2 else ""
+            body = f'Chose <b>{_html.escape(chose_txt)}</b> instead of <b>{_html.escape(correct_txt)}</b>' if correct_txt else _html.escape(m["confusion"])
+            st.markdown(
+                f'<div class="miscon-card">'
+                f'<p class="miscon-topic">{_html.escape(m["topic"])}</p>'
+                f'<p class="miscon-text">{body}</p>'
+                f'<p class="miscon-count">{m["count"]} time{"s" if m["count"]>1 else ""}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     with st.expander("Reset all progress"):
         st.warning("Clears all streaks, XP, and review history. Cannot be undone.")

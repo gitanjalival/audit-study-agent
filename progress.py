@@ -252,6 +252,33 @@ def check_new_achievements(progress: dict, session_ratings: list | None = None) 
     return new
 
 
+def record_misconception(progress: dict, topic: str, chosen_text: str, correct_text: str) -> dict:
+    """
+    Record a specific wrong answer pattern.
+    chosen_text / correct_text should be the SHORT option label (e.g. "A. Significant deficiency").
+    """
+    if "misconceptions" not in progress:
+        progress["misconceptions"] = {}
+    tm = progress["misconceptions"].setdefault(topic, {})
+    key = f"{chosen_text[:60]} → {correct_text[:60]}"
+    tm[key] = tm.get(key, 0) + 1
+    return progress
+
+
+def get_top_misconceptions(progress: dict, top_n: int = 5) -> list:
+    """
+    Return top N most-repeated wrong-answer patterns across all topics.
+    Each item: {"topic": str, "confusion": str, "count": int}
+    """
+    miscons = progress.get("misconceptions", {})
+    flat = [
+        {"topic": topic, "confusion": confusion, "count": count}
+        for topic, confusions in miscons.items()
+        for confusion, count in confusions.items()
+    ]
+    return sorted(flat, key=lambda x: x["count"], reverse=True)[:top_n]
+
+
 def streak_calendar(progress: dict, days: int = 7) -> list[dict]:
     """
     Return last N days as list of {date, studied} dicts for the calendar strip.

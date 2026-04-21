@@ -264,3 +264,78 @@ Start your response with [ and end with ]. Nothing else."""
     raw = raw.strip().rstrip("```").strip()
 
     return _json.loads(raw)
+
+
+# ---------------------------------------------------------------------------
+# 4. Session Debrief Generator
+# ---------------------------------------------------------------------------
+
+def generate_session_debrief(api_key: str, session_results: list) -> str:
+    """
+    Generate a 3-sentence personalized debrief after a practice session.
+    session_results: list of dicts with keys: question, topic, correct (bool),
+                     chosen (str), correct_answer (str), explanation (str)
+    """
+    client = _client(api_key)
+    correct_count = sum(1 for r in session_results if r.get("correct"))
+    total = len(session_results)
+
+    results_lines = []
+    for r in session_results:
+        status = "CORRECT" if r.get("correct") else f"WRONG (chose: {r.get('chosen','?')}, right: {r.get('correct_answer','?')})"
+        results_lines.append(f"  [{r.get('topic','?')}] {r.get('question','')[:90]}... → {status}")
+
+    prompt = f"""You are a study coach for a Notre Dame student in ACCT 40510 Auditing (Prof. Morrison).
+
+The student just completed a {total}-question practice session and got {correct_count}/{total} correct.
+
+Session results:
+{chr(10).join(results_lines)}
+
+Write EXACTLY 3 sentences — no more, no less:
+1. Acknowledge their strongest performance area (name the specific topic or concept)
+2. Identify the single most important gap exposed by this session (specific concept or distinction they missed)
+3. Give ONE concrete action: name the exact concept, standard, or distinction to review next
+
+Rules:
+- Be direct. No filler like "Great job!"
+- Use precise auditing terminology (PCAOB, GAAS, assertions, etc.)
+- If they got everything right, still find a nuance or edge case to mention
+- Plain prose only. No bullet points, headers, or markdown."""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=250,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
+def generate_tutor_response(
+    api_key: str,
+    question_text: str,
+    correct_answer: str,
+    explanation: str,
+    user_question: str,
+    topic: str,
+) -> str:
+    """Answer a follow-up question about a specific practice question."""
+    client = _client(api_key)
+    prompt = f"""You are a precise, patient tutor for a Notre Dame student in ACCT 40510 Auditing.
+
+The student just answered this practice question:
+TOPIC: {topic}
+QUESTION: {question_text}
+CORRECT ANSWER: {correct_answer}
+EXPLANATION: {explanation}
+
+The student is asking: "{user_question}"
+
+Answer in 2–4 sentences. Be specific and use correct auditing terminology. If they are confused about a distinction, explain both sides clearly. Do not start with filler phrases like "Great question!" — just answer directly."""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=350,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
