@@ -235,6 +235,25 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .ach-name { font-size:0.82rem; font-weight:600; color:#1E1D1A; margin:0 0 3px; }
 .ach-desc { font-size:0.72rem; color:#8C8881; margin:0; }
 
+/* ── Mode cards ── */
+.mode-card {
+    background: #FFFFFF; border: 1px solid #E8E4DC; border-radius: 18px;
+    padding: 24px 20px 18px; text-align: left; height: 100%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    margin-bottom: 12px;
+}
+.mode-card.active { border-color: #B87C65; background: #FDF9F7; }
+.mode-eyebrow {
+    font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase;
+    color: #B87C65; font-weight: 700; margin: 0 0 8px 0;
+}
+.mode-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.15rem; font-weight: 400; color: #1E1D1A; margin: 0 0 8px 0;
+}
+.mode-body { font-size: 0.77rem; color: #8A8780; line-height: 1.6; margin: 0; }
+.mode-divider { width: 28px; height: 2px; background: #B87C65; border-radius: 2px; margin: 0 0 14px 0; }
+
 /* ── Session complete XP banner ── */
 .xp-banner {
     background:#FDF3EE; border:1px solid #F0D9CE; border-radius:18px;
@@ -267,6 +286,7 @@ for k, v in {
     "practice_queue":[], "practice_idx":0,
     "practice_selected":None, "practice_answered":False,
     "practice_correct":0, "practice_generating":False,
+    "practice_mode":"spaced",
     # Legacy quiz tracking (kept for backward compat)
     "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
@@ -482,22 +502,53 @@ with tab_practice:
     all_cards = load_flashcards()
 
     # ── Helper: generate questions for a session ──────────────────────────────
-    def _build_practice_questions():
-        """Generate 20 fresh MC questions from course materials, algorithm-weighted."""
+    def _build_practice_questions(mode: str = "spaced"):
+        """
+        Generate 20 fresh MC questions from course materials.
+
+        mode='week'   → questions drawn only from the last 1-2 classes
+                         (weight 4 in the schedule; falls back to weight 3 if needed)
+        mode='spaced' → full recency × inverse-performance algorithm across all topics
+        """
         from schedule import get_weighted_topics_with_performance
-        algo     = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
-        notes    = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
-        quizzes  = {k:v for k,v in mats.items() if v.get("type") == "quiz"}
-        notes_t  = _text(notes or mats)
-        quiz_t   = _text(quizzes)
-        raw_qs   = generate_practice_questions(
+        algo = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
+
+        if mode == "week":
+            # Filter to most recent topics (weight 4 = last 1-2 classes)
+            plan = [e for e in algo["topic_plan"] if e.get("weight", 0) >= 4]
+            if len(plan) < 2:            # fallback: include moderate-recency (weight 3)
+                plan = [e for e in algo["topic_plan"] if e.get("weight", 0) >= 3]
+            if not plan:                 # ultimate fallback: use everything
+                plan = algo["topic_plan"]
+            # Re-allocate all 20 questions among the selected recent topics
+            tw = sum(e.get("combined_weight", e.get("weight", 1)) for e in plan) or 1
+            for e in plan:
+                e["num_questions"] = max(1, round(
+                    e.get("combined_weight", e.get("weight", 1)) / tw * 20
+                ))
+            # Trim / pad to exactly 20
+            diff = sum(e["num_questions"] for e in plan) - 20
+            for e in sorted(plan, key=lambda x: x.get("combined_weight", 1)):
+                if diff == 0: break
+                if diff > 0 and e["num_questions"] > 1:
+                    e["num_questions"] -= 1; diff -= 1
+                elif diff < 0:
+                    e["num_questions"] += 1; diff += 1
+        else:
+            plan = algo["topic_plan"]
+
+        notes   = {k:v for k,v in mats.items() if v.get("type") in ("notes","reading")}
+        quizzes = {k:v for k,v in mats.items() if v.get("type") == "quiz"}
+        notes_t = _text(notes or mats)
+        quiz_t  = _text(quizzes)
+        raw_qs  = generate_practice_questions(
             api_key=api_key,
             notes_text=notes_t,
             quiz_examples=quiz_t,
             num_questions=20,
             question_types=["Multiple Choice"],
             difficulty="Mixed",
-            topic_plan=algo["topic_plan"],
+            topic_plan=plan,
         )
         # Normalise to questions_cache schema (add id, topic, class_num)
         out = []
@@ -505,6 +556,7 @@ with tab_practice:
             q.setdefault("id", f"live-{date.today().isoformat()}-{i}")
             q.setdefault("topic", "Auditing")
             q.setdefault("class_num", 0)
+            q["_mode"] = mode          # tag so UI can show which mode is active
             # map options list to A/B/C/D if not already
             if q.get("options") and not q["options"][0].startswith("A"):
                 labels = ["A","B","C","D"]
@@ -527,36 +579,63 @@ with tab_practice:
 
         st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
 
-        focus_html = f"<br><span style='font-size:0.78rem;color:#8C8881'>Algorithm focus: {focus}</span>" if focus else ""
-        st.markdown(
-            f'<div class="hero-card" style="margin-top:12px">'
-            f'<p class="hero-eyebrow">Retrieval practice</p>'
-            f'<h2 class="hero-title">20 practice questions</h2>'
-            f'<p class="hero-body">Prof. Morrison-style questions generated fresh from your course materials. '
-            f'This week\'s topics come first, then spaced review of older material.{focus_html}</p>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        # ── Mode selector ─────────────────────────────────────────────────────
+        # Figure out this week's topic names for the card description
+        recent_topics = [e for e in algo["topic_plan"] if e.get("weight", 0) >= 4]
+        if not recent_topics:
+            recent_topics = algo["topic_plan"][-2:]
+        recent_names = " · ".join(e["topic"] for e in recent_topics[:3])
+        spaced_focus = focus or "Weighted across all topics by recency and your accuracy"
 
-        col = st.columns([1,2,1])[1]
-        with col:
-            if not api_key:
-                st.warning("Add your Anthropic API key in the sidebar to generate practice questions.")
-            else:
-                if st.button("Start practice", use_container_width=True, type="primary"):
-                    with st.spinner("Generating questions from your course materials…"):
-                        try:
-                            qs = _build_practice_questions()
-                            st.session_state.practice_queue    = qs
-                            st.session_state.practice_idx      = 0
-                            st.session_state.practice_selected = None
-                            st.session_state.practice_answered = False
-                            st.session_state.practice_correct  = 0
-                            st.session_state.session_xp        = 0
-                            st.session_state.session_ratings   = []
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Could not generate questions: {e}")
+        if not api_key:
+            st.warning("Add your Anthropic API key in the sidebar to generate practice questions.")
+        else:
+            def _start(mode: str):
+                spinner_msg = (
+                    "Generating questions from this week's classes…"
+                    if mode == "week"
+                    else "Generating algorithm-weighted questions…"
+                )
+                with st.spinner(spinner_msg):
+                    try:
+                        qs = _build_practice_questions(mode=mode)
+                        st.session_state.practice_queue    = qs
+                        st.session_state.practice_idx      = 0
+                        st.session_state.practice_selected = None
+                        st.session_state.practice_answered = False
+                        st.session_state.practice_correct  = 0
+                        st.session_state.practice_mode     = mode
+                        st.session_state.session_xp        = 0
+                        st.session_state.session_ratings   = []
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not generate questions: {e}")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(
+                    f'<div class="mode-card">'
+                    f'<div class="mode-divider"></div>'
+                    f'<p class="mode-eyebrow">This week</p>'
+                    f'<p class="mode-title">Recent classes</p>'
+                    f'<p class="mode-body">{recent_names}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("Study this week →", use_container_width=True, type="primary", key="start_week"):
+                    _start("week")
+            with col2:
+                st.markdown(
+                    f'<div class="mode-card">'
+                    f'<div class="mode-divider"></div>'
+                    f'<p class="mode-eyebrow">Spaced repetition</p>'
+                    f'<p class="mode-title">Algorithm picks</p>'
+                    f'<p class="mode-body">{spaced_focus}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("Spaced review →", use_container_width=True, key="start_spaced"):
+                    _start("spaced")
 
     # ── Session complete ──────────────────────────────────────────────────────
     elif st.session_state.practice_idx >= len(st.session_state.practice_queue):
@@ -614,10 +693,11 @@ with tab_practice:
         item  = queue[idx]
         pct   = idx / len(queue) * 100
 
+        mode_label = "This week" if st.session_state.get("practice_mode") == "week" else "Spaced review"
         st.markdown(
             f'<div class="progress-row">'
             f'<span class="progress-count">Question {idx+1} of {len(queue)}</span>'
-            f'<span class="progress-count">{int(pct)}%</span>'
+            f'<span class="progress-count" style="color:#B87C65;font-weight:600">{mode_label}</span>'
             f'</div>'
             f'<div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>',
             unsafe_allow_html=True,
