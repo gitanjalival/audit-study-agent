@@ -255,6 +255,23 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .mode-body { font-size: 0.77rem; color: #8A8780; line-height: 1.6; margin: 0; }
 .mode-divider { width: 28px; height: 2px; background: #B87C65; border-radius: 2px; margin: 0 0 14px 0; }
 
+/* ── Resume banner ── */
+.resume-card {
+    background: #FDF9F7; border: 1.5px solid #B87C65; border-radius: 18px;
+    padding: 20px 24px; margin-bottom: 18px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.resume-info { flex: 1; }
+.resume-eyebrow {
+    font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase;
+    color: #B87C65; font-weight: 700; margin: 0 0 4px 0;
+}
+.resume-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.1rem; font-weight: 400; color: #1E1D1A; margin: 0 0 4px 0;
+}
+.resume-sub { font-size: 0.77rem; color: #8A8780; margin: 0; }
+
 /* ── Session complete XP banner ── */
 .xp-banner {
     background:#FDF3EE; border:1px solid #F0D9CE; border-radius:18px;
@@ -287,7 +304,7 @@ for k, v in {
     "practice_queue":[], "practice_idx":0,
     "practice_selected":None, "practice_answered":False,
     "practice_correct":0, "practice_generating":False,
-    "practice_mode":"spaced",
+    "practice_mode":"spaced", "practice_paused":False,
     # Legacy quiz tracking (kept for backward compat)
     "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
@@ -640,8 +657,8 @@ with tab_practice:
             out.append(q)
         return out
 
-    # ── No active session — dashboard ────────────────────────────────────────
-    if not st.session_state.practice_queue:
+    # ── No active session OR paused — dashboard ──────────────────────────────
+    if not st.session_state.practice_queue or st.session_state.practice_paused:
         from schedule import get_weighted_topics_with_performance
         algo  = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
         focus = algo.get("focus_summary","")
@@ -654,6 +671,41 @@ with tab_practice:
         c3.markdown(f'<div class="stat-tile"><div class="stat-value">{xp_t}</div><div class="stat-label">XP today</div></div>', unsafe_allow_html=True)
 
         st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
+
+        # ── Resume banner (shown when session is paused) ──────────────────────
+        if st.session_state.practice_paused and st.session_state.practice_queue:
+            q_done  = st.session_state.practice_idx
+            q_total = len(st.session_state.practice_queue)
+            q_left  = q_total - q_done
+            mode_lbl = "This week" if st.session_state.practice_mode == "week" else "Spaced review"
+            pct_done = int(q_done / q_total * 100)
+            st.markdown(
+                f'<div class="resume-card">'
+                f'<div class="resume-info">'
+                f'<p class="resume-eyebrow">Session paused · {mode_lbl}</p>'
+                f'<p class="resume-title">{q_left} question{"s" if q_left != 1 else ""} left</p>'
+                f'<p class="resume-sub">{q_done} of {q_total} answered · {pct_done}% complete</p>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            rc1, rc2 = st.columns([2, 1])
+            with rc1:
+                if st.button("Resume session →", use_container_width=True, type="primary", key="resume_btn"):
+                    st.session_state.practice_paused = False
+                    st.rerun()
+            with rc2:
+                if st.button("Discard", use_container_width=True, key="discard_btn"):
+                    st.session_state.practice_queue    = []
+                    st.session_state.practice_idx      = 0
+                    st.session_state.practice_paused   = False
+                    st.session_state.practice_selected = None
+                    st.session_state.practice_answered = False
+                    st.session_state.practice_correct  = 0
+                    st.session_state.session_xp        = 0
+                    st.session_state.session_ratings   = []
+                    st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
 
         # ── Mode selector ─────────────────────────────────────────────────────
         # Figure out this week's topic names for the card description
@@ -844,13 +896,26 @@ with tab_practice:
                     st.session_state.practice_answered  = False
                     st.rerun()
 
-        if st.button("End session", key="p_end", type="secondary"):
-            save_progress(st.session_state.progress)
-            st.session_state.practice_queue    = []
-            st.session_state.practice_idx      = 0
-            st.session_state.practice_selected = None
-            st.session_state.practice_answered = False
-            st.rerun()
+        pb1, pb2 = st.columns(2)
+        with pb1:
+            if st.button("Pause", key="p_pause", use_container_width=True):
+                save_progress(st.session_state.progress)
+                st.session_state.practice_paused   = True
+                st.session_state.practice_selected = None
+                st.session_state.practice_answered = False
+                st.rerun()
+        with pb2:
+            if st.button("End session", key="p_end", type="secondary", use_container_width=True):
+                save_progress(st.session_state.progress)
+                st.session_state.practice_queue    = []
+                st.session_state.practice_idx      = 0
+                st.session_state.practice_paused   = False
+                st.session_state.practice_selected = None
+                st.session_state.practice_answered = False
+                st.session_state.practice_correct  = 0
+                st.session_state.session_xp        = 0
+                st.session_state.session_ratings   = []
+                st.rerun()
 
 # ════════════════════════════════════════════ REVIEW (FLASHCARDS) ════════════
 with tab_flash:
