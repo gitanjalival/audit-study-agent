@@ -14,7 +14,7 @@ from datetime import date
 
 import streamlit as st
 
-from agent import generate_summary, generate_study_plan, generate_practice_questions
+from agent import generate_summary, generate_study_plan
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
 from progress import (load_progress, save_progress, record_review, get_today_stats,
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
@@ -708,106 +708,6 @@ with tab_flash:
                     st.session_state.flash_flipped = False
                     st.rerun()
 
-# ════════════════════════════════════════════ PRACTICE ═══════════════════════
-with tab_quiz:
-    if not mats:
-        st.markdown(
-            '<div class="hero-card">'
-            '<p class="hero-eyebrow">Practice questions</p>'
-            '<h2 class="hero-title">No materials yet</h2>'
-            '<p class="hero-body">Your Box materials will auto-sync after class. In the meantime, use the Flashcards tab — it works right now.</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        notes_files = [k for k,v in mats.items() if v.get("type") in ("notes","reading")]
-        quiz_files  = [k for k,v in mats.items() if v.get("type")=="quiz"]
-
-        if not st.session_state.last_questions:
-            c1, c2 = st.columns(2)
-            with c1:
-                num_q      = st.slider("Number of questions", 3, 15, 5, key="q_num")
-                q_types    = st.multiselect("Question types", ["Multiple Choice","Short Answer","True/False"], default=["Multiple Choice","Short Answer"], key="q_types")
-                difficulty = st.select_slider("Difficulty", ["Easy","Medium","Hard","Mixed"], value="Mixed", key="q_diff")
-            with c2:
-                st.markdown("**Topics — auto-selected by weight**")
-                weighted   = get_weighted_topics(num_questions=num_q)
-                st.info(weighted["summary"])
-
-            if st.button("Generate questions", type="primary", key="btn_q"):
-              if not api_key:
-                st.warning("Add your Anthropic API key in the sidebar to generate questions.")
-              else:
-                with st.spinner("Crafting questions…"):
-                    try:
-                        w = get_weighted_topics(num_questions=num_q)
-                        result = generate_practice_questions(
-                            api_key=api_key,
-                            notes_text=_text({k:mats[k] for k in notes_files}),
-                            quiz_examples=_text({k:mats[k] for k in quiz_files}),
-                            num_questions=num_q,
-                            question_types=q_types,
-                            difficulty=difficulty,
-                            topic_plan=w["topic_plan"],
-                        )
-                        st.session_state.last_questions = result
-                        st.session_state.quiz_answers   = {}
-                        st.session_state.quiz_submitted = False
-                        st.session_state.quiz_error     = None
-                    except Exception as e:
-                        st.session_state.quiz_error = str(e)
-
-            if st.session_state.quiz_error:
-                st.error(st.session_state.quiz_error)
-
-        if st.session_state.last_questions:
-            questions = st.session_state.last_questions
-            submitted = st.session_state.quiz_submitted
-            answers   = st.session_state.quiz_answers
-
-            if st.button("New quiz", key="new_quiz"):
-                st.session_state.last_questions = None
-                st.session_state.quiz_submitted  = False
-                st.rerun()
-
-            st.divider()
-            for i, q in enumerate(questions):
-                qkey = f"q_{i}"
-                st.markdown(f"**Q{i+1}. {q.get('question','')}**")
-                if submitted:
-                    ua = answers.get(qkey, "")
-                    if q.get("type") in ("mc","true_false"):
-                        ok = ua.strip().upper().startswith(q.get("correct","").strip().upper())
-                        (st.success if ok else st.error)(f"{'Correct' if ok else 'Incorrect'}: {ua}")
-                        if not ok: st.info(f"Correct answer: {q['correct']}")
-                    else:
-                        st.markdown(f"**Your answer:** {ua}" if ua.strip() else "_No answer_")
-                        st.info(f"**Model answer:** {q['correct']}")
-                    st.caption(f"Why: {q.get('explanation','')}")
-                else:
-                    if q.get("type") in ("mc","true_false"):
-                        choice = st.radio(f"Q{i+1}", q.get("options",[]), index=None, key=qkey, label_visibility="collapsed")
-                        answers[qkey] = choice or ""
-                    else:
-                        answers[qkey] = st.text_area(f"Q{i+1}", key=qkey, height=96, placeholder="Type your answer…", label_visibility="collapsed")
-                st.divider()
-
-            if not submitted:
-                if st.button("Submit and grade", type="primary", key="submit_q"):
-                    st.session_state.quiz_answers   = answers
-                    st.session_state.quiz_submitted = True
-                    st.rerun()
-            else:
-                gradeable = [q for q in questions if q.get("type") in ("mc","true_false")]
-                if gradeable:
-                    nc  = sum(1 for i,q in enumerate(questions) if q.get("type") in ("mc","true_false") and answers.get(f"q_{i}","").strip().upper().startswith(q.get("correct","").strip().upper()))
-                    pct = int(nc / len(gradeable) * 100)
-                    st.metric("Score", f"{nc}/{len(gradeable)}", f"{pct}%")
-                md = f"# Quiz Results — {date.today()}\n\n" + "".join(
-                    f"**Q{i+1}. {q['question']}**\n- Yours: {answers.get(f'q_{i}','')}\n- Correct: {q['correct']}\n- Why: {q['explanation']}\n\n"
-                    for i,q in enumerate(questions)
-                )
-                st.download_button("Download results", md, f"quiz_{date.today()}.md", "text/markdown")
 
 # ════════════════════════════════════════════ PROGRESS ═══════════════════════
 with tab_progress:
