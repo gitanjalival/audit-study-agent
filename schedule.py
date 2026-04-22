@@ -274,6 +274,58 @@ def days_until_next_exam(as_of: date = None) -> int | None:
     return (exam[1] - (as_of or date.today())).days
 
 
+def get_exam_likelihood(materials: dict = None, as_of: date = None) -> list:
+    """
+    Score each completed topic by likelihood of appearing on next exam.
+
+    Formula: exam_score = recency_weight × (1 + concept_freq_in_quizzes)
+
+    Returns list of {topic, class_num, exam_score, recency_label, concepts} sorted descending.
+    """
+    if as_of is None:
+        as_of = date.today()
+
+    completed = get_completed_classes(as_of)
+    if not completed:
+        return []
+
+    n = len(completed)
+
+    # Count concept mentions in quiz/practice materials
+    quiz_text = ""
+    if materials:
+        for name, m in materials.items():
+            if m.get("type") in ("quiz", "practice") or "quiz" in name.lower() or "test" in name.lower():
+                quiz_text += " " + m.get("text", "").lower()
+
+    result = []
+    for i, (num, d, topic, concepts) in enumerate(completed):
+        classes_ago = n - 1 - i
+        if classes_ago <= 1:   weight = 4
+        elif classes_ago <= 5: weight = 3
+        elif classes_ago <= 13: weight = 2
+        else:                  weight = 1
+
+        # Count how many concepts appear in quiz materials
+        freq = 0
+        if quiz_text:
+            for concept in concepts:
+                if concept.lower() in quiz_text:
+                    freq += 1
+
+        exam_score = round(weight * (1 + freq * 0.5), 2)
+        result.append({
+            "topic":     topic,
+            "class_num": num,
+            "exam_score": exam_score,
+            "recency_weight": weight,
+            "concept_freq": freq,
+            "concepts":  concepts[:6],
+        })
+
+    return sorted(result, key=lambda x: x["exam_score"], reverse=True)
+
+
 def get_weighted_topics_with_performance(progress: dict, all_cards: list,
                                          num_questions: int = 10,
                                          as_of: date = None) -> dict:

@@ -54,45 +54,80 @@ def sm2_update(card_data: dict, rating: int) -> dict:
     }
 
 
-def get_due_cards(all_cards: list, progress: dict, max_new: int = 15, max_review: int = 25) -> list:
+def get_due_cards(all_cards: list, progress: dict, max_new: int = 15, max_review: int = 25,
+                  compress_factor: float = 0.0) -> list:
     """
     Build today's study queue.
 
     Priority: overdue reviews first (sorted by how overdue), then new cards.
     Caps new cards at max_new to prevent overwhelm — research shows introducing
     too many new items at once degrades retention (Kornell & Bjork, 2008).
+
+    FEATURE 4: compress_factor (0.0-1.0) shortens SM-2 intervals when exam is ≤7 days away.
     """
-    today = date.today().isoformat()
-    due   = []
-    new   = []
+    today     = date.today()
+    today_str = today.isoformat()
+    due       = []
+    new       = []
 
     for card in all_cards:
-        cid       = card["id"]
-        cp        = progress.get("cards", {}).get(cid, {})
-        next_rev  = cp.get("next_review", today)
-        is_new    = cp.get("repetitions", 0) == 0
+        cid      = card["id"]
+        cp       = progress.get("cards", {}).get(cid, {})
+        next_rev = cp.get("next_review", today_str)
+        is_new   = cp.get("repetitions", 0) == 0
+        interval = cp.get("interval", 1)
 
         if is_new:
             new.append(card)
-        elif next_rev <= today:
-            due.append(card)
+        else:
+            if compress_factor > 0 and interval > 1:
+                compress_days = int(interval * compress_factor)
+                try:
+                    next_rev_date    = date.fromisoformat(next_rev)
+                    effective_rev    = next_rev_date - timedelta(days=compress_days)
+                    effective_rev_str = effective_rev.isoformat()
+                except Exception:
+                    effective_rev_str = next_rev
+            else:
+                effective_rev_str = next_rev
+
+            if effective_rev_str <= today_str:
+                due.append(card)
 
     # Most overdue cards first
-    due.sort(key=lambda c: progress.get("cards", {}).get(c["id"], {}).get("next_review", today))
-
+    due.sort(key=lambda c: progress.get("cards", {}).get(c["id"], {}).get("next_review", today_str))
     return due[:max_review] + new[:max_new]
 
 
-def count_due(all_cards: list, progress: dict) -> dict:
-    """Return counts of due-for-review and new cards."""
-    today = date.today().isoformat()
+def count_due(all_cards: list, progress: dict, compress_factor: float = 0.0) -> dict:
+    """
+    Return counts of due-for-review and new cards.
+
+    FEATURE 4: compress_factor applies interval compression for pre-exam review.
+    """
+    today     = date.today()
+    today_str = today.isoformat()
     n_due = n_new = 0
     for card in all_cards:
         cp = progress.get("cards", {}).get(card["id"], {})
         if cp.get("repetitions", 0) == 0:
             n_new += 1
-        elif cp.get("next_review", today) <= today:
-            n_due += 1
+        else:
+            next_rev = cp.get("next_review", today_str)
+            interval = cp.get("interval", 1)
+            if compress_factor > 0 and interval > 1:
+                compress_days = int(interval * compress_factor)
+                try:
+                    next_rev_date = date.fromisoformat(next_rev)
+                    effective_rev = next_rev_date - timedelta(days=compress_days)
+                    effective_rev_str = effective_rev.isoformat()
+                except Exception:
+                    effective_rev_str = next_rev
+            else:
+                effective_rev_str = next_rev
+
+            if effective_rev_str <= today_str:
+                n_due += 1
     return {"due": n_due, "new": n_new}
 
 

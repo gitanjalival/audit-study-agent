@@ -25,8 +25,8 @@ from progress import (load_progress, save_progress, record_review, get_today_sta
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
                       check_new_achievements, record_misconception, get_top_misconceptions,
                       DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS, get_forgetting_predictions,
-                      get_weekly_stats)
-from schedule import get_weighted_topics, get_upcoming_class
+                      get_weekly_stats, record_time_accuracy, get_time_of_day_stats)
+from schedule import get_weighted_topics, get_upcoming_class, days_until_next_exam, get_exam_likelihood
 
 # ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -356,6 +356,25 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .miscon-topic { font-size:0.62rem; font-weight:700; color:#B87C65; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 4px; }
 .miscon-text  { font-size:0.83rem; color:#2C2C28; margin:0 0 4px; line-height:1.5; }
 .miscon-count { font-size:0.72rem; color:#8A8780; margin:0; }
+
+/* ── Exam sim timer ── */
+.sim-timer-wrap {
+    background:#1E1D1A; border-radius:14px; padding:14px 20px;
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:16px;
+}
+.sim-timer-label { font-size:0.65rem; letter-spacing:0.12em; text-transform:uppercase; color:#8A8780; font-weight:600; margin:0; }
+.sim-timer-value { font-family:'DM Serif Display',serif; font-size:2rem; color:#F7F5F1; margin:0; line-height:1; }
+.sim-timer-value.urgent { color:#C46356; }
+
+/* ── Sim results ── */
+.sim-result-row { padding:12px 0; border-bottom:1px solid #E8E4DC; }
+.sim-result-row:last-child { border-bottom:none; }
+.sim-q-text { font-size:0.83rem; color:#2C2C28; margin:0 0 4px; line-height:1.5; }
+.sim-verdict { font-size:0.75rem; font-weight:600; margin:0 0 2px; }
+.sim-verdict.correct { color:#7A9E88; }
+.sim-verdict.wrong   { color:#C46356; }
+.sim-exp { font-size:0.72rem; color:#8A8780; margin:0; line-height:1.5; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -372,6 +391,10 @@ for k, v in {
     "practice_mode":"spaced", "practice_paused":False,
     "session_results":[], "session_debrief":None,
     "tutor_response":None, "tutor_q_idx":-1,
+    # FEATURE 1: Immediate retest on mistakes
+    "session_wrong_questions":[],
+    # FEATURE 2: Exam simulation mode
+    "sim_mode":False, "sim_start_time":None, "sim_answers":{},
     # FEATURE 4: Cognitive fatigue detection
     "session_start_time":None, "break_suggested":False,
     # FEATURE 5: Weekly synthesis
@@ -712,14 +735,16 @@ with tab_practice:
     # ── Helper: generate questions for a session ──────────────────────────────
     def _build_practice_questions(mode: str = "spaced"):
         """
-        Generate 20 fresh MC questions from course materials.
+        Generate 20 fresh MC questions from course materials (30 for sim mode).
 
         mode='week'   → questions drawn only from the last 1-2 classes
                          (weight 4 in the schedule; falls back to weight 3 if needed)
         mode='spaced' → full recency × inverse-performance algorithm across all topics
+        mode='sim'    → 30 questions using full algorithm for exam simulation
         """
         from schedule import get_weighted_topics_with_performance
-        algo = get_weighted_topics_with_performance(progress, all_cards, num_questions=20)
+        n_questions = 30 if mode == "sim" else 20
+        algo = get_weighted_topics_with_performance(progress, all_cards, num_questions=n_questions)
 
         if mode == "week":
             # Filter to most recent topics (weight 4 = last 1-2 classes)
@@ -782,7 +807,7 @@ with tab_practice:
             api_key=api_key,
             notes_text=notes_t,
             quiz_examples=quiz_t,
-            num_questions=20,
+            num_questions=n_questions,
             question_types=["Multiple Choice"],
             difficulty="Mixed",
             topic_plan=plan,
@@ -919,6 +944,7 @@ with tab_practice:
                 spinner_msg = (
                     "Generating questions from this week's classes…"
                     if mode == "week"
+                    else "Generating exam simulation (30 questions, 45 min)…" if mode == "sim"
                     else "Generating algorithm-weighted questions…"
                 )
                 with st.spinner(spinner_msg):
@@ -939,6 +965,17 @@ with tab_practice:
                         # FEATURE 4: Initialize session timing
                         st.session_state.session_start_time = time.time()
                         st.session_state.break_suggested    = False
+                        # FEATURE 2: Sim mode initialization
+                        if mode == "sim":
+                            st.session_state.sim_mode       = True
+                            st.session_state.sim_start_time = time.time()
+                            st.session_state.sim_answers    = {}
+                        else:
+                            st.session_state.sim_mode       = False
+                            st.session_state.sim_start_time = None
+                            st.session_state.sim_answers    = {}
+                        # FEATURE 1: Reset wrong questions
+                        st.session_state.session_wrong_questions = []
                         st.rerun()
                     except Exception as e:
                         st.error(f"Could not generate questions: {e}")
@@ -997,6 +1034,19 @@ with tab_practice:
                     unsafe_allow_html=True,
                 )
 
+            # ── Exam simulation mode (full-width) ─────────────────────────────
+            st.markdown(
+                '<div class="mode-card" style="background:#1E1D1A;border-color:#3A3936;margin-top:4px">'
+                '<div class="mode-divider" style="background:#B87C65"></div>'
+                '<p class="mode-eyebrow" style="color:#8A8780">Exam simulation</p>'
+                '<p class="mode-title" style="color:#F7F5F1">30 questions · 45 min</p>'
+                '<p class="mode-body" style="color:#8A8780">No feedback during the exam. Simulates real test conditions — proven to improve exam performance.</p>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Start exam simulation →", use_container_width=True, key="start_sim"):
+                _start("sim")
+
     # ── Session complete ──────────────────────────────────────────────────────
     elif st.session_state.practice_idx >= len(st.session_state.practice_queue):
         _clear_paused_session()   # session finished — remove any saved state
@@ -1018,8 +1068,90 @@ with tab_practice:
             unsafe_allow_html=True,
         )
 
-        # ── Post-session debrief ───────────────────────────────────────────────
-        if api_key and st.session_state.session_results:
+        # ── FEATURE 2: Sim mode completion screen ──────────────────────────────
+        if st.session_state.get("sim_mode"):
+            # Exam simulation results breakdown
+            elapsed_s   = time.time() - (st.session_state.sim_start_time or time.time())
+            elapsed_min = int(min(45, elapsed_s / 60))
+            elapsed_sec = int(elapsed_s % 60)
+            queue       = st.session_state.practice_queue
+            sim_ans     = st.session_state.sim_answers
+
+            correct_count = 0
+            topic_scores: dict = {}
+
+            result_rows = ""
+            for q in queue:
+                chosen      = sim_ans.get(q["id"], "")
+                correct_ltr = q.get("correct", "A")
+                opts        = q.get("options", [])
+                correct_opt = next((o for o in opts if o.startswith(correct_ltr)), "")
+                is_cor      = bool(chosen) and (chosen.startswith(correct_ltr+".") or chosen.startswith(correct_ltr+" "))
+                if is_cor: correct_count += 1
+
+                topic = q.get("topic", "Unknown")
+                ts = topic_scores.setdefault(topic, {"correct": 0, "total": 0})
+                ts["total"] += 1
+                if is_cor: ts["correct"] += 1
+
+                verdict_cls  = "correct" if is_cor else "wrong"
+                verdict_text = "✓ Correct" if is_cor else f"✗ You chose: {chosen[:40]} | Correct: {correct_opt[:40]}"
+                exp_text     = _html.escape(q.get("explanation", ""))
+                q_text       = _html.escape(q.get("question", "")[:120])
+                result_rows += (
+                    f'<div class="sim-result-row">'
+                    f'<p class="sim-q-text">{q_text}</p>'
+                    f'<p class="sim-verdict {verdict_cls}">{verdict_text}</p>'
+                    f'<p class="sim-exp">{exp_text}</p>'
+                    f'</div>'
+                )
+
+            total = len(queue)
+            pct   = int(correct_count / total * 100) if total else 0
+
+            st.markdown(
+                f'<div class="xp-banner">'
+                f'<div class="xp-number">{pct}%</div>'
+                f'<p class="xp-sub">{correct_count}/{total} correct · {elapsed_min}:{elapsed_sec:02d} used</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Per-topic breakdown
+            st.markdown('<p class="section-label">By topic</p>', unsafe_allow_html=True)
+            breakdown_html = '<div class="ws-card">'
+            for topic, ts in sorted(topic_scores.items(), key=lambda x: x[1]["correct"]/x[1]["total"]):
+                tpct  = int(ts["correct"] / ts["total"] * 100)
+                color = "#7A9E88" if tpct >= 70 else ("#C4963A" if tpct >= 50 else "#C46356")
+                breakdown_html += (
+                    f'<div class="ws-row"><div class="ws-header">'
+                    f'<span>{_html.escape(topic)}</span>'
+                    f'<span class="ws-pct">{ts["correct"]}/{ts["total"]} · {tpct}%</span></div>'
+                    f'<div class="ws-track"><div class="ws-fill" style="width:{tpct}%;background:{color}"></div></div>'
+                    f'</div>'
+                )
+            breakdown_html += '</div>'
+            st.markdown(breakdown_html, unsafe_allow_html=True)
+
+            # Full question review
+            with st.expander("Review all questions"):
+                st.markdown(f'<div>{result_rows}</div>', unsafe_allow_html=True)
+
+            col = st.columns([1,2,1])[1]
+            with col:
+                if st.button("Done", use_container_width=True, type="primary", key="sim_done"):
+                    _clear_paused_session()
+                    st.session_state.practice_queue    = []
+                    st.session_state.practice_idx      = 0
+                    st.session_state.practice_paused   = False
+                    st.session_state.sim_mode          = False
+                    st.session_state.sim_answers       = {}
+                    st.session_state.session_xp        = 0
+                    st.session_state.session_ratings   = []
+                    st.rerun()
+
+        # ── Post-session debrief (normal mode) ──────────────────────────────────
+        elif api_key and st.session_state.session_results:
             if not st.session_state.session_debrief:
                 with st.spinner("Generating your session debrief…"):
                     try:
@@ -1057,8 +1189,36 @@ with tab_practice:
             f'</div>', unsafe_allow_html=True,
         )
 
+        # ── FEATURE 1: Retest mistakes button ──────────────────────────────────
+        wrong_qs = st.session_state.get("session_wrong_questions", [])
         col = st.columns([1,2,1])[1]
         with col:
+            if wrong_qs:
+                wrong_count = len(wrong_qs)
+                if st.button(f"Retest {wrong_count} mistake{'s' if wrong_count > 1 else ''} →",
+                             use_container_width=True, key="retest_btn"):
+                    _clear_paused_session()
+                    retest_q = wrong_qs[:10]
+                    for i, q in enumerate(retest_q):
+                        q["id"] = f"retest-{date.today().isoformat()}-{i}"
+                    st.session_state.practice_queue          = retest_q
+                    st.session_state.practice_idx            = 0
+                    st.session_state.practice_selected       = None
+                    st.session_state.practice_answered       = False
+                    st.session_state.practice_correct        = 0
+                    st.session_state.practice_mode           = "retest"
+                    st.session_state.practice_paused         = False
+                    st.session_state.session_xp              = 0
+                    st.session_state.session_ratings         = []
+                    st.session_state.session_results         = []
+                    st.session_state.session_debrief         = None
+                    st.session_state.session_wrong_questions = []
+                    st.session_state.session_start_time      = time.time()
+                    st.session_state.break_suggested         = False
+                    st.session_state.tutor_response          = None
+                    st.session_state.tutor_q_idx             = -1
+                    st.session_state.sim_mode                = False
+                    st.rerun()
             if st.button("Practice again", use_container_width=True, type="primary"):
                 _clear_paused_session()
                 st.session_state.practice_queue    = []
@@ -1077,7 +1237,7 @@ with tab_practice:
         item  = queue[idx]
         pct   = idx / len(queue) * 100
 
-        mode_labels = {"week": "This week", "spaced": "Spaced review", "drill": "Drill", "preview": "Pre-class preview"}
+        mode_labels = {"week": "This week", "spaced": "Spaced review", "drill": "Drill", "preview": "Pre-class preview", "retest": "Retest", "sim": "Exam simulation"}
         mode_label = mode_labels.get(st.session_state.get("practice_mode", "spaced"), "Practice")
 
         # ── Cognitive fatigue detection (FEATURE 4) ──────────────────────────
@@ -1122,12 +1282,51 @@ with tab_practice:
         answered = st.session_state.practice_answered
         selected = st.session_state.practice_selected
 
+        # FEATURE 2: Exam sim timer display
+        if st.session_state.sim_mode and st.session_state.sim_start_time:
+            elapsed_s   = time.time() - st.session_state.sim_start_time
+            remaining_s = max(0, 45 * 60 - elapsed_s)
+            mins        = int(remaining_s // 60)
+            secs        = int(remaining_s % 60)
+            urgent_cls  = "urgent" if remaining_s < 5 * 60 else ""
+            st.markdown(
+                f'<div class="sim-timer-wrap">'
+                f'<p class="sim-timer-label">Time remaining</p>'
+                f'<p class="sim-timer-value {urgent_cls}">{mins}:{secs:02d}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            # Auto-submit if time expired
+            if remaining_s <= 0:
+                st.session_state.practice_idx = len(st.session_state.practice_queue)
+                st.rerun()
+
         if not answered:
             for opt in opts:
                 if st.button(opt, key=f"p_opt_{idx}_{opt}", use_container_width=True):
                     st.session_state.practice_selected = opt
                     st.session_state.practice_answered = True
                     st.rerun()
+        # FEATURE 2: Sim mode (no feedback during exam)
+        elif st.session_state.sim_mode:
+            # Sim mode: no feedback, just record and advance
+            if not answered:
+                for opt in opts:
+                    if st.button(opt, key=f"s_opt_{idx}_{opt}", use_container_width=True):
+                        st.session_state.sim_answers[item["id"]] = opt
+                        st.session_state.practice_selected = opt
+                        st.session_state.practice_answered = True
+                        st.rerun()
+            else:
+                for opt in opts:
+                    st.markdown(f"{'**' if opt == selected else ''}{opt}{'**' if opt == selected else ''}")
+                col = st.columns([1,2,1])[1]
+                with col:
+                    if st.button("Next →", use_container_width=True, type="primary", key=f"s_next_{idx}"):
+                        st.session_state.practice_idx      += 1
+                        st.session_state.practice_selected  = None
+                        st.session_state.practice_answered  = False
+                        st.rerun()
         else:
             correct_letter = item.get("correct","A")
             correct_opt    = next((o for o in opts if o.startswith(correct_letter+".") or o.startswith(correct_letter+" ")), "")
@@ -1138,9 +1337,14 @@ with tab_practice:
             prog = st.session_state.progress
             prog = record_quiz_attempt(prog, item["id"], is_correct)
             prog = add_xp(prog, xp)
+            # FEATURE 5: Track time-of-day accuracy
+            prog = record_time_accuracy(prog, is_correct)
             # Track misconceptions on wrong answers
             if not is_correct and selected and correct_opt:
                 prog = record_misconception(prog, item.get("topic","?"), selected[:60], correct_opt[:60])
+            # FEATURE 1: Track wrong questions for retest
+            if not is_correct:
+                st.session_state.session_wrong_questions.append(item)
             st.session_state.progress = prog
             # Append to session results for debrief
             st.session_state.session_results.append({
@@ -1289,7 +1493,11 @@ with tab_flash:
 
     # ── Dashboard — cards exist, no active session ────────────────────────────
     elif not st.session_state.flash_queue:
-        counts     = count_due(all_cards, progress)
+        # FEATURE 4: Pre-exam interval compression
+        from schedule import days_until_next_exam
+        _exam_days_review = days_until_next_exam()
+        _compress = max(0.0, (7 - _exam_days_review) / 7) if (_exam_days_review and _exam_days_review <= 7) else 0.0
+        counts     = count_due(all_cards, progress, compress_factor=_compress)
         card_total = counts["due"] + counts["new"]
 
         if card_total > 0:
@@ -1302,10 +1510,18 @@ with tab_flash:
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            # Show compression notice if active
+            if _compress > 0 and _exam_days_review:
+                st.markdown(
+                    f'<div style="background:#FEF9EE;border:1px solid #C4963A;border-radius:10px;'
+                    f'padding:10px 16px;margin-bottom:12px;font-size:0.78rem;color:#7A5C1E">'
+                    f'⚡ Exam in {_exam_days_review} days — review intervals compressed to surface more cards.</div>',
+                    unsafe_allow_html=True,
+                )
             col = st.columns([1,2,1])[1]
             with col:
                 if st.button("Start review", use_container_width=True, type="primary"):
-                    q = get_due_cards(all_cards, progress)
+                    q = get_due_cards(all_cards, progress, compress_factor=_compress)
                     st.session_state.flash_queue     = [dict(c, type="card") for c in q]
                     st.session_state.flash_idx       = 0
                     st.session_state.flash_flipped   = False
@@ -1557,6 +1773,27 @@ with tab_progress:
     else:
         st.info("Generate flashcards to start tracking progress.")
 
+    # FEATURE 3: Most likely on exam predictions
+    exam_preds = get_exam_likelihood(materials=mats)
+    if exam_preds:
+        st.markdown('<p class="section-label">Most likely on next exam</p>', unsafe_allow_html=True)
+        top_preds = exam_preds[:8]
+        pred_html = '<div class="ws-card">'
+        max_score = top_preds[0]["exam_score"] if top_preds else 1
+        for ep in top_preds:
+            bar_pct = int(ep["exam_score"] / max_score * 100)
+            freq_note = f" · {ep['concept_freq']} quiz match{'es' if ep['concept_freq']!=1 else ''}" if ep["concept_freq"] > 0 else ""
+            pred_html += (
+                f'<div class="ws-row"><div class="ws-header">'
+                f'<span>{_html.escape(ep["topic"])}</span>'
+                f'<span class="ws-pct">Class {ep["class_num"]}{freq_note}</span></div>'
+                f'<div class="ws-track"><div class="ws-fill" style="width:{bar_pct}%;background:#B87C65"></div></div>'
+                f'</div>'
+            )
+        pred_html += '</div>'
+        st.markdown(pred_html, unsafe_allow_html=True)
+        st.caption("Scored by recency × how often these concepts appeared in Prof. Morrison's past quizzes.")
+
     # Misconceptions
     miscons = get_top_misconceptions(st.session_state.progress)
     if miscons:
@@ -1575,7 +1812,30 @@ with tab_progress:
                 unsafe_allow_html=True,
             )
 
-    # FEATURE 5: Weekly synthesis
+    # FEATURE 5: Time-of-day performance
+    time_stats = get_time_of_day_stats(progress)
+    if time_stats:
+        st.markdown('<p class="section-label">Best time to study</p>', unsafe_allow_html=True)
+        best    = time_stats[0]
+        time_html = '<div class="ws-card">'
+        for ts in time_stats:
+            pct   = int(ts["accuracy"] * 100)
+            color = "#7A9E88" if pct >= 75 else ("#C4963A" if pct >= 60 else "#C46356")
+            crown = " 👑" if ts == best else ""
+            time_html += (
+                f'<div class="ws-row"><div class="ws-header">'
+                f'<span>{ts["label"]}{crown}</span>'
+                f'<span class="ws-pct">{ts["correct"]}/{ts["total"]} · {pct}%</span></div>'
+                f'<div class="ws-track"><div class="ws-fill" style="width:{pct}%;background:{color}"></div></div>'
+                f'</div>'
+            )
+        time_html += '</div>'
+        st.markdown(time_html, unsafe_allow_html=True)
+        st.caption(f"Your best accuracy is in the {best['label'].lower()} — schedule harder sessions then.")
+    elif progress.get("total_reviews", 0) < 20:
+        pass  # Don't show section until enough data
+
+    # Weekly synthesis
     st.markdown('<p class="section-label">Weekly report</p>', unsafe_allow_html=True)
     _today_wd = date.today().weekday()  # 6 = Sunday
     _is_sunday = _today_wd == 6

@@ -402,3 +402,48 @@ def streak_calendar(progress: dict, days: int = 7) -> list[dict]:
         d = (date.today() - timedelta(days=i)).isoformat()
         result.append({"date": d, "studied": d in studied_dates})
     return result
+
+
+# ─────────────────────────────────────────────────────────────────
+# FEATURE 5: Study-time Performance Tracking
+# ─────────────────────────────────────────────────────────────────
+
+def record_time_accuracy(progress: dict, correct: bool) -> dict:
+    """Record whether a practice answer was correct, keyed by hour of day."""
+    from datetime import datetime
+    hour = datetime.now().hour
+    # Bucket: 0=midnight-6, 1=6am-12pm, 2=12pm-6pm, 3=6pm-midnight
+    bucket = hour // 6  # 0,1,2,3
+    if "time_accuracy" not in progress:
+        progress["time_accuracy"] = {}
+    key = str(bucket)
+    ta  = progress["time_accuracy"].setdefault(key, {"correct": 0, "total": 0})
+    ta["total"] += 1
+    if correct:
+        ta["correct"] += 1
+    return progress
+
+
+def get_time_of_day_stats(progress: dict) -> list:
+    """
+    Return accuracy by time-of-day bucket.
+    Each item: {label, correct, total, accuracy}
+    """
+    labels = {
+        "0": "Midnight – 6am",
+        "1": "Morning (6am–12pm)",
+        "2": "Afternoon (12–6pm)",
+        "3": "Evening (6–midnight)",
+    }
+    ta = progress.get("time_accuracy", {})
+    result = []
+    for key, label in labels.items():
+        if key in ta and ta[key]["total"] >= 3:
+            s = ta[key]
+            result.append({
+                "label":    label,
+                "correct":  s["correct"],
+                "total":    s["total"],
+                "accuracy": round(s["correct"] / s["total"], 3),
+            })
+    return sorted(result, key=lambda x: x["accuracy"], reverse=True)
