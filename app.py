@@ -16,15 +16,17 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from agent import (generate_summary, generate_study_plan, generate_practice_questions,
-                   generate_session_debrief, generate_tutor_response)
+                   generate_session_debrief, generate_tutor_response, generate_preview_questions,
+                   generate_weekly_synthesis)
 from quiz import (load_questions, get_weighted_questions,
                   record_quiz_attempt, XP_CORRECT, XP_ATTEMPT)
 from flashcards import generate_flashcards, get_due_cards, count_due, load_flashcards, save_flashcards
 from progress import (load_progress, save_progress, record_review, get_today_stats,
                       get_weak_spots, streak_calendar, add_xp, get_xp_today,
                       check_new_achievements, record_misconception, get_top_misconceptions,
-                      DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS)
-from schedule import get_weighted_topics
+                      DAILY_GOAL_XP, XP_FOR_RATING, ACHIEVEMENTS, get_forgetting_predictions,
+                      get_weekly_stats)
+from schedule import get_weighted_topics, get_upcoming_class
 
 # ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -370,6 +372,10 @@ for k, v in {
     "practice_mode":"spaced", "practice_paused":False,
     "session_results":[], "session_debrief":None,
     "tutor_response":None, "tutor_q_idx":-1,
+    # FEATURE 4: Cognitive fatigue detection
+    "session_start_time":None, "break_suggested":False,
+    # FEATURE 5: Weekly synthesis
+    "weekly_synthesis":None,
     # Legacy quiz tracking (kept for backward compat)
     "quiz_selected":None, "quiz_answered":False, "session_quiz_correct":0, "session_quiz_total":0,
     "last_summary":None, "last_plan":None,
@@ -762,6 +768,16 @@ with tab_practice:
         quizzes = {k:v for k,v in mats.items() if v.get("type") == "quiz"}
         notes_t = _text(notes or mats)
         quiz_t  = _text(quizzes)
+
+        # FEATURE 1: Compute per-topic difficulty based on accuracy
+        weak = get_weak_spots(progress, all_cards)
+        difficulty_map = {}
+        for w in weak:
+            if w["accuracy"] >= 0.80:
+                difficulty_map[w["topic"]] = "hard"
+            elif w["accuracy"] < 0.50:
+                difficulty_map[w["topic"]] = "easy"
+
         raw_qs  = generate_practice_questions(
             api_key=api_key,
             notes_text=notes_t,
@@ -770,6 +786,7 @@ with tab_practice:
             question_types=["Multiple Choice"],
             difficulty="Mixed",
             topic_plan=plan,
+            difficulty_map=difficulty_map,
         )
         # Normalise to questions_cache schema (add id, topic, class_num)
         out = []
@@ -799,6 +816,57 @@ with tab_practice:
         c3.markdown(f'<div class="stat-tile"><div class="stat-value">{xp_t}</div><div class="stat-label">XP today</div></div>', unsafe_allow_html=True)
 
         st.markdown(_streak_strip(progress, 7), unsafe_allow_html=True)
+
+        # ── Pre-class preview (FEATURE 2) ──────────────────────────────────────
+        _upcoming = get_upcoming_class()
+        if _upcoming and api_key:
+            _uc_num, _uc_date, _uc_topic, _uc_concepts = _upcoming
+            _days_until = (_uc_date - date.today()).days
+            if _days_until <= 2:
+                _date_str = _uc_date.strftime("%b %d")
+                st.markdown(
+                    f'<div class="mode-card" style="background:#F0F4FF;border-color:#A0B4E8;margin-bottom:12px">'
+                    f'<div class="mode-divider" style="background:#6B8DD6"></div>'
+                    f'<p class="mode-eyebrow" style="color:#4A6BC4">Preview · Class {_uc_num} · {_date_str}</p>'
+                    f'<p class="mode-title">{_uc_topic}</p>'
+                    f'<p class="mode-body">Try 5 questions before class to prime your memory — getting them wrong is part of the plan.</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"Preview class {_uc_num} →", use_container_width=True, key="start_preview"):
+                    with st.spinner(f"Generating preview questions for {_uc_topic}…"):
+                        try:
+                            raw_qs = generate_preview_questions(
+                                api_key=api_key,
+                                topic=_uc_topic,
+                                concepts=_uc_concepts,
+                                class_num=_uc_num,
+                                num_questions=5,
+                            )
+                            for i, q in enumerate(raw_qs):
+                                q.setdefault("id", f"preview-{_uc_date.isoformat()}-{i}")
+                                q.setdefault("_mode", "preview")
+                                if q.get("options") and not q["options"][0].startswith("A"):
+                                    labels = ["A","B","C","D"]
+                                    q["options"] = [f"{labels[j]}. {o}" for j,o in enumerate(q["options"][:4])]
+                            st.session_state.practice_queue    = raw_qs
+                            st.session_state.practice_idx      = 0
+                            st.session_state.practice_selected = None
+                            st.session_state.practice_answered = False
+                            st.session_state.practice_correct  = 0
+                            st.session_state.practice_mode     = "preview"
+                            st.session_state.session_xp        = 0
+                            st.session_state.session_ratings   = []
+                            st.session_state.session_results   = []
+                            st.session_state.session_debrief   = None
+                            st.session_state.tutor_response    = None
+                            st.session_state.tutor_q_idx       = -1
+                            # FEATURE 4: Initialize session timing for preview
+                            st.session_state.session_start_time = time.time()
+                            st.session_state.break_suggested    = False
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not generate preview: {e}")
 
         # ── Resume banner (shown when session is paused) ──────────────────────
         if st.session_state.practice_paused and st.session_state.practice_queue:
@@ -868,6 +936,9 @@ with tab_practice:
                         st.session_state.session_debrief   = None
                         st.session_state.tutor_response    = None
                         st.session_state.tutor_q_idx       = -1
+                        # FEATURE 4: Initialize session timing
+                        st.session_state.session_start_time = time.time()
+                        st.session_state.break_suggested    = False
                         st.rerun()
                     except Exception as e:
                         st.error(f"Could not generate questions: {e}")
@@ -995,6 +1066,8 @@ with tab_practice:
                 st.session_state.practice_paused   = False
                 st.session_state.session_xp        = 0
                 st.session_state.session_ratings   = []
+                st.session_state.session_start_time = None
+                st.session_state.break_suggested    = False
                 st.rerun()
 
     # ── Active question ───────────────────────────────────────────────────────
@@ -1004,7 +1077,27 @@ with tab_practice:
         item  = queue[idx]
         pct   = idx / len(queue) * 100
 
-        mode_label = "This week" if st.session_state.get("practice_mode") == "week" else "Spaced review"
+        mode_labels = {"week": "This week", "spaced": "Spaced review", "drill": "Drill", "preview": "Pre-class preview"}
+        mode_label = mode_labels.get(st.session_state.get("practice_mode", "spaced"), "Practice")
+
+        # ── Cognitive fatigue detection (FEATURE 4) ──────────────────────────
+        if (st.session_state.session_start_time
+                and not st.session_state.break_suggested):
+            elapsed_min = (time.time() - st.session_state.session_start_time) / 60
+            if elapsed_min >= 25:
+                st.session_state.break_suggested = True
+                st.markdown(
+                    '<div style="background:#FEF9EE;border:1px solid #C4963A;border-radius:12px;'
+                    'padding:12px 18px;margin-bottom:14px;display:flex;align-items:center;gap:10px">'
+                    '<span style="font-size:1.1rem">☕</span>'
+                    '<div><p style="margin:0;font-size:0.83rem;font-weight:600;color:#7A5C1E">'
+                    "You've been studying for 25 minutes</p>"
+                    '<p style="margin:0;font-size:0.75rem;color:#8C7040">'
+                    'Taking a 5-minute break now improves memory consolidation. '
+                    'Pause and come back when ready.</p></div></div>',
+                    unsafe_allow_html=True,
+                )
+
         st.markdown(
             f'<div class="progress-row">'
             f'<span class="progress-count">Question {idx+1} of {len(queue)}</span>'
@@ -1148,6 +1241,8 @@ with tab_practice:
                 st.session_state.practice_correct  = 0
                 st.session_state.session_xp        = 0
                 st.session_state.session_ratings   = []
+                st.session_state.session_start_time = None
+                st.session_state.break_suggested    = False
                 st.rerun()
 
 # ════════════════════════════════════════════ REVIEW (FLASHCARDS) ════════════
@@ -1434,6 +1529,31 @@ with tab_progress:
             st.markdown(f'<div class="ws-card">{rows}</div>', unsafe_allow_html=True)
         else:
             st.info("Study at least 3 cards per topic to see accuracy data here.")
+
+        # FEATURE 3: Forgetting curve predictions
+        forget_preds = get_forgetting_predictions(progress, all_cards)
+        if forget_preds:
+            st.markdown('<p class="section-label">Memory health — predicted retention</p>', unsafe_allow_html=True)
+            forget_html = ""
+            for fp in forget_preds[:8]:
+                pct   = int(fp["retention"] * 100)
+                if pct >= 80:   bar_color = "#7A9E88"
+                elif pct >= 60: bar_color = "#C4963A"
+                else:           bar_color = "#C46356"
+                urgency = ""
+                if pct < 50:
+                    urgency = ' <span style="font-size:0.65rem;color:#C46356;font-weight:700">· review now</span>'
+                elif pct < 65:
+                    urgency = ' <span style="font-size:0.65rem;color:#C4963A;font-weight:600">· review soon</span>'
+                forget_html += (
+                    f'<div class="ws-row">'
+                    f'<div class="ws-header"><span>{_html.escape(fp["topic"])}{urgency}</span>'
+                    f'<span class="ws-pct">{pct}% retained · {int(fp["days_since"])}d ago</span></div>'
+                    f'<div class="ws-track"><div class="ws-fill" style="width:{pct}%;background:{bar_color}"></div></div>'
+                    f'</div>'
+                )
+            st.markdown(f'<div class="ws-card">{forget_html}</div>', unsafe_allow_html=True)
+            st.caption("Predicted using Ebbinghaus exponential decay model calibrated to your SM-2 review intervals.")
     else:
         st.info("Generate flashcards to start tracking progress.")
 
@@ -1454,6 +1574,40 @@ with tab_progress:
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+    # FEATURE 5: Weekly synthesis
+    st.markdown('<p class="section-label">Weekly report</p>', unsafe_allow_html=True)
+    _today_wd = date.today().weekday()  # 6 = Sunday
+    _is_sunday = _today_wd == 6
+
+    if _is_sunday and not st.session_state.weekly_synthesis:
+        st.info("It's Sunday — a good time to generate your weekly report.")
+
+    if st.session_state.weekly_synthesis:
+        _synth_escaped = _html.escape(st.session_state.weekly_synthesis)
+        _synth_formatted = _synth_escaped.replace(chr(10)+chr(10), "</p><p class='debrief-text'>")
+        st.markdown(
+            f'<div class="debrief-card">'
+            f'<p class="debrief-eyebrow">Weekly synthesis</p>'
+            f'<p class="debrief-text">{_synth_formatted}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    if api_key:
+        _wk_col = st.columns([1,2,1])[1]
+        with _wk_col:
+            btn_label = "Regenerate weekly report" if st.session_state.weekly_synthesis else "Generate weekly report"
+            if st.button(btn_label, use_container_width=True, key="gen_weekly"):
+                with st.spinner("Analysing your week…"):
+                    try:
+                        wstats = get_weekly_stats(progress, all_cards)
+                        st.session_state.weekly_synthesis = generate_weekly_synthesis(api_key, wstats)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not generate report: {e}")
+    else:
+        st.caption("Add your API key in the sidebar to generate your weekly report.")
 
     with st.expander("Reset all progress"):
         st.warning("Clears all streaks, XP, and review history. Cannot be undone.")

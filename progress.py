@@ -14,6 +14,7 @@ Storage: primary = st.session_state (works on Streamlit Cloud),
 import json
 import os
 from datetime import date, timedelta
+from math import exp
 
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 PROGRESS_FILE = os.path.join(SCRIPT_DIR, "study_progress.json")
@@ -277,6 +278,113 @@ def get_top_misconceptions(progress: dict, top_n: int = 5) -> list:
         for confusion, count in confusions.items()
     ]
     return sorted(flat, key=lambda x: x["count"], reverse=True)[:top_n]
+
+
+def get_forgetting_predictions(progress: dict, all_cards: list) -> list:
+    """
+    Predict current memory retention per topic using exponential decay
+    (Ebbinghaus forgetting curve approximation based on SM-2 intervals).
+
+    retention ≈ e^(-days_since_review / stability)
+    where stability ≈ interval × 1.5
+
+    Returns list of {topic, retention, days_since, interval, card_count}
+    sorted by retention ascending (most forgotten first).
+    Only includes topics where at least one card has been reviewed.
+    """
+    today = date.today()
+    topic_data: dict = {}
+
+    for card in all_cards:
+        cid   = card["id"]
+        topic = card.get("topic", "Unknown")
+        cp    = progress.get("cards", {}).get(cid, {})
+        if not cp or cp.get("repetitions", 0) == 0:
+            continue  # never reviewed
+
+        interval    = cp.get("interval", 1)
+        next_review = cp.get("next_review")
+        if not next_review:
+            continue
+        try:
+            next_rev_date = date.fromisoformat(next_review)
+        except Exception:
+            continue
+
+        last_review_date = next_rev_date - timedelta(days=interval)
+        days_since       = max(0, (today - last_review_date).days)
+        stability        = max(1, interval * 1.5)
+        retention        = max(0.05, min(1.0, exp(-days_since / stability)))
+
+        td = topic_data.setdefault(topic, {"retentions": [], "days_since_list": [], "interval_list": []})
+        td["retentions"].append(retention)
+        td["days_since_list"].append(days_since)
+        td["interval_list"].append(interval)
+
+    result = []
+    for topic, td in topic_data.items():
+        avg_ret    = sum(td["retentions"]) / len(td["retentions"])
+        avg_days   = sum(td["days_since_list"]) / len(td["days_since_list"])
+        avg_int    = sum(td["interval_list"]) / len(td["interval_list"])
+        result.append({
+            "topic":      topic,
+            "retention":  round(avg_ret, 3),
+            "days_since": round(avg_days, 1),
+            "interval":   round(avg_int, 1),
+            "card_count": len(td["retentions"]),
+        })
+
+    return sorted(result, key=lambda x: x["retention"])
+
+
+def get_weekly_stats(progress: dict, all_cards: list) -> dict:
+    """
+    Aggregate study stats for the past 7 days for weekly synthesis.
+    Returns dict with xp_by_day, total_xp, avg_accuracy, topic_trends, streak, etc.
+    """
+    today = date.today()
+
+    # XP per day for last 7 days
+    xp_by_day = {}
+    for i in range(7):
+        d = (today - timedelta(days=i)).isoformat()
+        xp_by_day[d] = progress.get("xp_by_day", {}).get(d, 0)
+
+    # Per-topic accuracy over last 7 days
+    topic_stats: dict = {}
+    cutoff = (today - timedelta(days=7)).isoformat()
+    for card in all_cards:
+        cid   = card["id"]
+        topic = card.get("topic", "Unknown")
+        history = progress.get("cards", {}).get(cid, {}).get("history", [])
+        recent = [h for h in history if h.get("date", "") >= cutoff]
+        if not recent:
+            continue
+        ts = topic_stats.setdefault(topic, {"correct": 0, "total": 0})
+        for h in recent:
+            ts["total"] += 1
+            if h.get("rating", 0) >= 3:
+                ts["correct"] += 1
+
+    topic_accuracy = {
+        t: round(s["correct"] / s["total"], 3)
+        for t, s in topic_stats.items() if s["total"] >= 2
+    }
+
+    quiz_attempts = progress.get("quiz_attempts", {})
+    quiz_correct  = progress.get("quiz_correct", {})
+    quiz_acc = (sum(quiz_correct.values()) / sum(quiz_attempts.values())
+                if sum(quiz_attempts.values()) > 0 else None)
+
+    return {
+        "xp_by_day":      xp_by_day,
+        "total_xp_week":  sum(xp_by_day.values()),
+        "topic_accuracy": topic_accuracy,
+        "quiz_accuracy":  quiz_acc,
+        "streak":         progress.get("streak", 0),
+        "total_reviews":  progress.get("total_reviews", 0),
+        "days_studied":   sum(1 for xp in xp_by_day.values() if xp > 0),
+    }
 
 
 def streak_calendar(progress: dict, days: int = 7) -> list[dict]:

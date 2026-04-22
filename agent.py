@@ -139,6 +139,7 @@ def generate_practice_questions(
     difficulty: str = "Mixed",
     include_answers: bool = True,
     topic_plan: list[dict] | None = None,   # from schedule.get_weighted_topics()
+    difficulty_map: dict | None = None,     # FEATURE 1: per-topic difficulty mapping
 ) -> list[dict]:
     """
     Generate professor-stylized practice questions as structured JSON for interactive grading.
@@ -195,9 +196,16 @@ def generate_practice_questions(
         for entry in topic_plan:
             if entry["num_questions"] > 0 and entry["concepts"]:
                 concepts_str = ", ".join(entry["concepts"][:8])
+                diff_label = ""
+                if difficulty_map:
+                    td = difficulty_map.get(entry["topic"], "standard")
+                    if td == "hard":
+                        diff_label = " [HARD — mastered topic: use subtle distractors, edge cases, multi-step scenarios]"
+                    elif td == "easy":
+                        diff_label = " [EASY — new topic: prioritize clear conceptual questions]"
                 topic_lines.append(
                     f"  - {entry['num_questions']} question(s) on Class {entry['class_num']} "
-                    f"— {entry['topic']}: [{concepts_str}]"
+                    f"— {entry['topic']}: [{concepts_str}]{diff_label}"
                 )
         topic_instruction = (
             "TOPIC ALLOCATION (spaced repetition weighted by recency — treat as a floor, "
@@ -311,6 +319,54 @@ Rules:
     return response.content[0].text.strip()
 
 
+def generate_preview_questions(
+    api_key: str,
+    topic: str,
+    concepts: list,
+    class_num: int,
+    num_questions: int = 5,
+) -> list[dict]:
+    """
+    Generate pre-class preview questions on an upcoming topic.
+    Students haven't learned this yet — the goal is priming (Kornell et al., 2009).
+    Questions should be answerable with general business/accounting sense so students
+    can engage, but the correct answers teach the specific auditing concept.
+    """
+    import json as _json
+
+    client = _client(api_key)
+    concepts_str = ", ".join(concepts[:10])
+    prompt = f"""You are generating PRE-CLASS PREVIEW questions for a Notre Dame ACCT 40510 Auditing student.
+
+The student has NOT yet attended Class {class_num}: "{topic}".
+Upcoming concepts: {concepts_str}
+
+PURPOSE: Pre-testing improves later learning even when students get questions wrong (Kornell et al., 2009).
+Questions should be:
+- Answerable using general business intuition (not requiring prior auditing knowledge)
+- Directly connected to the upcoming topic so they prime the right concepts
+- Interesting enough to make students curious about the answer
+
+Generate exactly {num_questions} multiple-choice questions.
+
+Return ONLY a valid JSON array. No markdown fences.
+Schema: {{"type":"mc","question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correct":"A","explanation":"...","topic":"{topic}","class_num":{class_num}}}
+Start with [ and end with ]. Nothing else."""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=2500,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip().rstrip("```").strip()
+    return _json.loads(raw)
+
+
 def generate_tutor_response(
     api_key: str,
     question_text: str,
@@ -336,6 +392,52 @@ Answer in 2–4 sentences. Be specific and use correct auditing terminology. If 
     response = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=350,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
+def generate_weekly_synthesis(api_key: str, weekly_stats: dict) -> str:
+    """
+    Generate a personalized weekly study synthesis for an auditing student.
+    """
+    client = _client(api_key)
+
+    xp_lines = [f"  {d}: {xp} XP" for d, xp in sorted(weekly_stats["xp_by_day"].items())]
+
+    topic_lines = []
+    for topic, acc in sorted(weekly_stats["topic_accuracy"].items(), key=lambda x: x[1]):
+        topic_lines.append(f"  {topic}: {int(acc*100)}% accuracy")
+
+    prompt = f"""You are writing a weekly study report for a Notre Dame student in ACCT 40510 Auditing.
+
+WEEK STATS:
+- Days studied: {weekly_stats['days_studied']}/7
+- Total XP this week: {weekly_stats['total_xp_week']}
+- Current streak: {weekly_stats['streak']} days
+- Total flashcard reviews ever: {weekly_stats['total_reviews']}
+
+XP BY DAY (last 7 days):
+{chr(10).join(xp_lines) if xp_lines else '  No data'}
+
+TOPIC ACCURACY THIS WEEK:
+{chr(10).join(topic_lines) if topic_lines else '  No topic data yet'}
+
+Write a weekly synthesis in 4 short paragraphs:
+1. Overall assessment of the week (consistency, XP trend, study habits)
+2. Strongest performance: name the 1-2 topics with best accuracy and what that means
+3. Biggest gap: name the 1-2 weakest topics and the specific concept to focus on next week
+4. Concrete recommendation: one specific thing to do differently next week (be precise — name the exact technique, topic, or standard)
+
+Rules:
+- Use precise auditing terminology
+- Be direct and honest — don't sugarcoat low effort
+- Keep each paragraph to 2-3 sentences
+- No bullet points, no headers, just 4 paragraphs separated by blank lines"""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=400,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text.strip()

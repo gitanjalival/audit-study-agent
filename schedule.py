@@ -249,6 +249,15 @@ def get_weighted_topics(as_of: date = None, num_questions: int = 10) -> dict:
     }
 
 
+def get_upcoming_class(as_of: date = None) -> tuple | None:
+    """Return the next class that hasn't happened yet (within 7 days)."""
+    if as_of is None:
+        as_of = date.today()
+    upcoming = [(num, d, topic, concepts) for num, d, topic, concepts in SCHEDULE
+                if d > as_of and concepts]  # skip test days
+    return upcoming[0] if upcoming else None
+
+
 def get_upcoming_exam(as_of: date = None) -> tuple | None:
     """Return the next exam/test/quiz date after today."""
     if as_of is None:
