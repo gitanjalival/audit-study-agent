@@ -234,14 +234,28 @@ QUESTION SPECIFICATIONS:
 - Difficulty: {difficulty}
 
 QUALITY STANDARDS — follow these strictly:
-1. Multiple choice distractors must be PLAUSIBLE. Wrong answers should represent common misconceptions or subtle misunderstandings, not obvious nonsense.
-2. Questions must test UNDERSTANDING, not just memorization. Use scenario-based framing where possible (e.g. "An auditor is reviewing XYZ. Which of the following...").
-3. Mirror Prof. Morrison's style from the quiz examples: precise technical language, PCAOB/GAAS terminology, realistic audit scenarios.
-4. Short answer questions must require the student to APPLY a concept, not just define it.
-5. Never write a question and answer that give away the answer (e.g. don't repeat a key term from the question in the correct answer).
-6. For MC: all 4 options must be grammatically parallel and similar in length.
-7. Explanations must explain WHY the correct answer is right AND briefly why the main wrong answer is wrong.
-8. If a concept appears in BOTH the practice problems/past quizzes AND the recent class material, prioritize it — it is both professor-tested and freshly covered.
+
+DISTRACTOR DESIGN (most important rule):
+Each wrong answer must be something a well-prepared student could genuinely believe is correct. Use these specific distractor patterns:
+  a) ADJACENT CONCEPT: a term or rule from the same topic area that is subtly different (e.g. "significant deficiency" when the answer is "material weakness" — both are control deficiencies, but at different severity thresholds)
+  b) PLAUSIBLE REVERSAL: the answer to a related but distinct question (e.g. if the question is about "completeness," a distractor addresses "existence" — both are assertions, students confuse them)
+  c) PARTIALLY CORRECT: an answer that is true in general but wrong for the specific scenario given
+  d) COMMON MISAPPLICATION: a real standard or procedure applied to the wrong context
+
+FORBIDDEN distractor patterns (never use these):
+  - Answers that are obviously wrong or nonsensical
+  - Answers that contain obvious keywords making them clearly incorrect
+  - "None of the above" or "All of the above"
+  - Options with dramatically different lengths (the longest option should not always be correct)
+  - Options that reuse a key term from the question in a way that signals correctness
+
+QUESTION DESIGN:
+1. Every question must be scenario-based: put the student inside a real audit situation. Start with "An auditor is reviewing...", "During the audit of...", "A client's controller explains...", "While testing controls at...". Pure definitional questions (e.g. "What is detection risk?") are not allowed.
+2. The correct answer should require TWO cognitive steps: first identify the concept being tested, then apply it to the specific scenario. One-step recall questions are not allowed.
+3. Questions testing distinctions (e.g. Type I vs Type II subsequent events, tracing vs vouching, preventive vs detective controls) must make the scenario just ambiguous enough that both answers seem defensible — then have one clear winner based on a specific detail in the scenario.
+4. Mirror Prof. Morrison's style from the quiz examples: precise PCAOB/GAAS terminology, realistic numbers and contexts.
+5. Explanations must explain WHY the correct answer is right AND specifically why the MOST TEMPTING wrong answer is wrong — name it and explain the distinction.
+6. If a concept appears in BOTH the practice problems/past quizzes AND recent class material, prioritize it.
 
 Return ONLY a valid JSON array — no markdown fences, no text outside the array.
 Each element must follow this exact schema:
