@@ -1397,6 +1397,7 @@ with tab_practice:
                                     explanation=item.get("explanation",""),
                                     user_question=tutor_input.strip(),
                                     topic=item.get("topic",""),
+                                    options=item.get("options", []),
                                 )
                             except Exception as e:
                                 st.session_state.tutor_response = f"Could not reach tutor: {e}"

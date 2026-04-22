@@ -388,18 +388,27 @@ def generate_tutor_response(
     explanation: str,
     user_question: str,
     topic: str,
+    options: list | None = None,
 ) -> str:
     """Answer a follow-up question about a specific practice question."""
     client = _client(api_key)
+
+    options_block = ""
+    if options:
+        options_block = "ANSWER OPTIONS:\n" + "\n".join(f"  {o}" for o in options) + "\n\n"
+
     prompt = f"""You are a precise, patient tutor for a Notre Dame student in ACCT 40510 Auditing.
 
 The student just answered this practice question:
 TOPIC: {topic}
 QUESTION: {question_text}
-CORRECT ANSWER: {correct_answer}
+
+{options_block}CORRECT ANSWER: {correct_answer}
 EXPLANATION: {explanation}
 
 The student is asking: "{user_question}"
+
+IMPORTANT: You know exactly what every answer option says (A, B, C, D are listed above). If the student refers to an answer by letter (e.g. "why is A wrong?"), address that specific option text directly — quote it briefly and explain precisely why it is incorrect or correct.
 
 Answer in 2–4 sentences. Be specific and use correct auditing terminology. If they are confused about a distinction, explain both sides clearly. Do not start with filler phrases like "Great question!" — just answer directly."""
 
